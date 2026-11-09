@@ -1,0 +1,41 @@
+[project]
+name = "climatectl"
+dynamic = ["version"]  # from the git tag (v0.1.0 -> 0.1.0); see "Releasing" in the README
+description = "Log thermostats, weather and HVAC runs to SQLite, and alert on HVAC faults"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+    "google-auth>=2.30",  # the Nest provider's Pub/Sub events
+    "tzdata>=2026.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.17.1",
+]
+
+[project.scripts]
+climatectl = "climatectl.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.27", "hatch-vcs>=0.5"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/climatectl"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

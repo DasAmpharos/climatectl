@@ -1,0 +1,15 @@
+.env
+.env.tmp
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+data/
+*.db
+*.db-shm
+*.db-wal
+# Google credentials downloaded from the Cloud console
+client-secret*.json
+client_secret*.json
+*service-account*.json
