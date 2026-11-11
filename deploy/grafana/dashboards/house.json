@@ -1,0 +1,984 @@
+{
+  "uid": "climatectl-house",
+  "title": "House",
+  "description": "Thermostats, HVAC runs and weather, from the climatectl logger.",
+  "tags": [
+    "climatectl"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "5m",
+  "time": {
+    "from": "now-2d",
+    "to": "now"
+  },
+  "schemaVersion": 41,
+  "annotations": {
+    "list": [
+      {
+        "name": "Alerts",
+        "datasource": {
+          "type": "frser-sqlite-datasource",
+          "uid": "climatectl-sqlite"
+        },
+        "enable": true,
+        "iconColor": "red",
+        "target": {
+          "refId": "Anno",
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "climatectl-sqlite"
+          },
+          "queryType": "table",
+          "rawQueryText": "SELECT opened_at AS time, coalesce(resolved_at, last_seen_at) AS timeEnd,\n       title || ': ' || message AS text, priority AS tags\nFROM alert\nWHERE opened_at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch') AND coalesce(resolved_at, last_seen_at) >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch')\n",
+          "queryText": "SELECT opened_at AS time, coalesce(resolved_at, last_seen_at) AS timeEnd,\n       title || ': ' || message AS text, priority AS tags\nFROM alert\nWHERE opened_at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch') AND coalesce(resolved_at, last_seen_at) >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch')\n",
+          "timeColumns": [
+            "time",
+            "timeEnd"
+          ]
+        }
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "unit",
+        "label": "Units",
+        "type": "custom",
+        "hide": 0,
+        "query": "°F : fahrenheit, °C : celsius",
+        "current": {
+          "text": "°F",
+          "value": "fahrenheit"
+        },
+        "options": [
+          {
+            "text": "°F",
+            "value": "fahrenheit",
+            "selected": true
+          },
+          {
+            "text": "°C",
+            "value": "celsius",
+            "selected": false
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Temperature (${unit:text})",
+      "description": "Indoor temperature per thermostat, its heat setpoint (dashed, orange) and cool setpoint (dotted, blue), and outdoor temperature. Thermostats report a new reading only when it changes, so indoor lines are drawn as steps.",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "climatectl-sqlite"
+          },
+          "queryType": "time series",
+          "rawQueryText": "SELECT r.at AS time, t.name AS level, CASE '${unit}' WHEN 'celsius' THEN r.temp_c ELSE r.temp_c * 9 / 5 + 32 END AS indoor\nFROM indoor_reading r JOIN thermostat t USING (device_id)\nWHERE r.at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-6 hours') AND r.at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY r.at\n",
+          "queryText": "SELECT r.at AS time, t.name AS level, CASE '${unit}' WHEN 'celsius' THEN r.temp_c ELSE r.temp_c * 9 / 5 + 32 END AS indoor\nFROM indoor_reading r JOIN thermostat t USING (device_id)\nWHERE r.at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-6 hours') AND r.at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY r.at\n",
+          "timeColumns": [
+            "time"
+          ]
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "climatectl-sqlite"
+          },
+          "queryType": "time series",
+          "rawQueryText": "SELECT s.at AS time, t.name AS level,\n       CASE '${unit}' WHEN 'celsius' THEN s.heat_c ELSE s.heat_c * 9 / 5 + 32 END AS \"heat setpoint\", CASE '${unit}' WHEN 'celsius' THEN s.cool_c ELSE s.cool_c * 9 / 5 + 32 END AS \"cool setpoint\"\nFROM setpoint s JOIN thermostat t USING (device_id)\nWHERE s.at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-6 hours') AND s.at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY s.at\n",
+          "queryText": "SELECT s.at AS time, t.name AS level,\n       CASE '${unit}' WHEN 'celsius' THEN s.heat_c ELSE s.heat_c * 9 / 5 + 32 END AS \"heat setpoint\", CASE '${unit}' WHEN 'celsius' THEN s.cool_c ELSE s.cool_c * 9 / 5 + 32 END AS \"cool setpoint\"\nFROM setpoint s JOIN thermostat t USING (device_id)\nWHERE s.at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-6 hours') AND s.at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY s.at\n",
+          "timeColumns": [
+            "time"
+          ]
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "climatectl-sqlite"
+          },
+          "queryType": "time series",
+          "rawQueryText": "SELECT observed_at AS time, CASE '${unit}' WHEN 'celsius' THEN temp_c ELSE temp_c * 9 / 5 + 32 END AS outdoor\nFROM weather_observation\nWHERE observed_at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-6 hours') AND observed_at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY observed_at\n",
+          "queryText": "SELECT observed_at AS time, CASE '${unit}' WHEN 'celsius' THEN temp_c ELSE temp_c * 9 / 5 + 32 END AS outdoor\nFROM weather_observation\nWHERE observed_at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-6 hours') AND observed_at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY observed_at\n",
+          "timeColumns": [
+            "time"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:°",
+          "decimals": 1,
+          "displayName": "${__field.labels.level} ${__field.name}",
+          "custom": {
+            "lineWidth": 2,
+            "lineInterpolation": "stepAfter",
+            "spanNulls": 3600000,
+            "showPoints": "never",
+            "fillOpacity": 0,
+            "insertNulls": 3600000
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*setpoint$"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*cool setpoint$"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    2,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Outdoor"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              },
+              {
+                "id": "custom.lineInterpolation",
+                "value": "smooth"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*heat setpoint$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*cool setpoint$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 1,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "climatectl-sqlite"
+      }
+    },
+    {
+      "type": "state-timeline",
+      "title": "Furnace and AC",
+      "description": "When each thermostat called for heat (orange) or cooling (blue).",
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 24,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "climatectl-sqlite"
+          },
+          "queryType": "table",
+          "rawQueryText": "SELECT s.at AS time, t.name AS level, s.status\nFROM hvac_status s JOIN thermostat t USING (device_id)\nWHERE s.at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-6 hours') AND s.at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY s.at, s.source\n",
+          "queryText": "SELECT s.at AS time, t.name AS level, s.status\nFROM hvac_status s JOIN thermostat t USING (device_id)\nWHERE s.at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-6 hours') AND s.at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY s.at, s.source\n",
+          "timeColumns": [
+            "time"
+          ]
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "level"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": false
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "displayName": "${__series.name}",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "heating": {
+                  "text": "Heating",
+                  "color": "orange",
+                  "index": 0
+                },
+                "cooling": {
+                  "text": "Cooling",
+                  "color": "blue",
+                  "index": 1
+                },
+                "idle": {
+                  "text": "Idle",
+                  "color": "transparent",
+                  "index": 2
+                }
+              }
+            }
+          ],
+          "custom": {
+            "fillOpacity": 85,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "mergeValues": true,
+        "showValue": "never",
+        "rowHeight": 0.8,
+        "alignValue": "left",
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "id": 2,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "climatectl-sqlite"
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Daily runtime",
+      "description": "Minutes of heating and cooling per day and thermostat.",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 11,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "climatectl-sqlite"
+          },
+          "queryType": "time series",
+          "rawQueryText": "SELECT w.day AS time, t.name AS level,\n       coalesce(h.heating_min, 0) AS heating, coalesce(h.cooling_min, 0) AS cooling\nFROM weather_daily w\nCROSS JOIN thermostat t\nLEFT JOIN hvac_daily h ON h.day = w.day AND h.device_id = t.device_id\nWHERE w.day >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-1 day') AND w.day <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY w.day, t.name\n",
+          "queryText": "SELECT w.day AS time, t.name AS level,\n       coalesce(h.heating_min, 0) AS heating, coalesce(h.cooling_min, 0) AS cooling\nFROM weather_daily w\nCROSS JOIN thermostat t\nLEFT JOIN hvac_daily h ON h.day = w.day AND h.device_id = t.device_id\nWHERE w.day >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-1 day') AND w.day <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY w.day, t.name\n",
+          "timeColumns": [
+            "time"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "decimals": 0,
+          "min": 0,
+          "displayName": "${__field.labels.level} ${__field.name}",
+          "custom": {
+            "fillOpacity": 85,
+            "lineWidth": 0,
+            "axisLabel": "minutes"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "time"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "time:ddd M/D"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*heating$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "shades",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*cooling$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "shades",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "xField": "time",
+        "orientation": "vertical",
+        "groupWidth": 0.75,
+        "barWidth": 0.9,
+        "showValue": "never",
+        "stacking": "none",
+        "xTickLabelRotation": 0,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "id": 3,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "climatectl-sqlite"
+      }
+    },
+    {
+      "type": "table",
+      "title": "Daily summary",
+      "description": "Runtime per thermostat next to the day's outdoor temperatures. Heating degree-days (base 65°F, or 18.3°C) measure how cold the day was: over time, runtime per degree-day is the efficiency baseline.",
+      "gridPos": {
+        "x": 11,
+        "y": 16,
+        "w": 13,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "climatectl-sqlite"
+          },
+          "queryType": "table",
+          "rawQueryText": "SELECT w.day AS time, t.name AS level,\n       coalesce(h.heating_min, 0) AS heating, coalesce(h.cooling_min, 0) AS cooling,\n       CASE '${unit}' WHEN 'celsius' THEN w.min_c ELSE w.min_c * 9 / 5 + 32 END AS low, CASE '${unit}' WHEN 'celsius' THEN w.max_c ELSE w.max_c * 9 / 5 + 32 END AS high, w.hdd_f * CASE '${unit}' WHEN 'celsius' THEN 5.0 / 9 ELSE 1 END AS hdd\nFROM weather_daily w\nCROSS JOIN thermostat t\nLEFT JOIN hvac_daily h ON h.day = w.day AND h.device_id = t.device_id\nWHERE w.day >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-1 day') AND w.day <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY w.day DESC, t.name\n",
+          "queryText": "SELECT w.day AS time, t.name AS level,\n       coalesce(h.heating_min, 0) AS heating, coalesce(h.cooling_min, 0) AS cooling,\n       CASE '${unit}' WHEN 'celsius' THEN w.min_c ELSE w.min_c * 9 / 5 + 32 END AS low, CASE '${unit}' WHEN 'celsius' THEN w.max_c ELSE w.max_c * 9 / 5 + 32 END AS high, w.hdd_f * CASE '${unit}' WHEN 'celsius' THEN 5.0 / 9 ELSE 1 END AS hdd\nFROM weather_daily w\nCROSS JOIN thermostat t\nLEFT JOIN hvac_daily h ON h.day = w.day AND h.device_id = t.device_id\nWHERE w.day >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-1 day') AND w.day <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY w.day DESC, t.name\n",
+          "timeColumns": [
+            "time"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "custom": {
+            "align": "auto",
+            "minWidth": 60
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Day"
+              },
+              {
+                "id": "unit",
+                "value": "time:ddd MMM D"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "level"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Thermostat"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "heating"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Heating"
+              },
+              {
+                "id": "unit",
+                "value": "m"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cooling"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Cooling"
+              },
+              {
+                "id": "unit",
+                "value": "m"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "low"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Low"
+              },
+              {
+                "id": "unit",
+                "value": "suffix:°"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "high"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "High"
+              },
+              {
+                "id": "unit",
+                "value": "suffix:°"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hdd"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Degree-days"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "id": 4,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "climatectl-sqlite"
+      }
+    },
+    {
+      "type": "table",
+      "title": "Heating and cooling runs",
+      "description": "Each finished run: how long it lasted, how far the temperature moved and how fast. A falling rate in similar weather is the first sign of a struggling furnace or AC.",
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "climatectl-sqlite"
+          },
+          "queryType": "table",
+          "rawQueryText": "SELECT start_at AS time, name AS level,\n       CASE status WHEN 'heating' THEN 'Heat' ELSE 'Cool' END AS mode,\n       minutes,\n       CASE '${unit}' WHEN 'celsius' THEN start_temp_c ELSE start_temp_c * 9 / 5 + 32 END AS start_temp, CASE '${unit}' WHEN 'celsius' THEN end_temp_c ELSE end_temp_c * 9 / 5 + 32 END AS end_temp,\n       (end_temp_c - start_temp_c) * CASE '${unit}' WHEN 'celsius' THEN 1 ELSE 9.0 / 5 END AS change,\n       rate_c_per_h * CASE '${unit}' WHEN 'celsius' THEN 1 ELSE 9.0 / 5 END AS rate,\n       CASE '${unit}' WHEN 'celsius' THEN outdoor_c ELSE outdoor_c * 9 / 5 + 32 END AS outdoor\nFROM hvac_cycle\nWHERE start_at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch') AND start_at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY start_at DESC\n",
+          "queryText": "SELECT start_at AS time, name AS level,\n       CASE status WHEN 'heating' THEN 'Heat' ELSE 'Cool' END AS mode,\n       minutes,\n       CASE '${unit}' WHEN 'celsius' THEN start_temp_c ELSE start_temp_c * 9 / 5 + 32 END AS start_temp, CASE '${unit}' WHEN 'celsius' THEN end_temp_c ELSE end_temp_c * 9 / 5 + 32 END AS end_temp,\n       (end_temp_c - start_temp_c) * CASE '${unit}' WHEN 'celsius' THEN 1 ELSE 9.0 / 5 END AS change,\n       rate_c_per_h * CASE '${unit}' WHEN 'celsius' THEN 1 ELSE 9.0 / 5 END AS rate,\n       CASE '${unit}' WHEN 'celsius' THEN outdoor_c ELSE outdoor_c * 9 / 5 + 32 END AS outdoor\nFROM hvac_cycle\nWHERE start_at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch') AND start_at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY start_at DESC\n",
+          "timeColumns": [
+            "time"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Started"
+              },
+              {
+                "id": "unit",
+                "value": "time:ddd MMM D, h:mm A"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "level"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Thermostat"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "mode"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Mode"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "minutes"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Length"
+              },
+              {
+                "id": "unit",
+                "value": "m"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "start_temp"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "From"
+              },
+              {
+                "id": "unit",
+                "value": "suffix:°"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "end_temp"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "To"
+              },
+              {
+                "id": "unit",
+                "value": "suffix:°"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "change"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Change"
+              },
+              {
+                "id": "unit",
+                "value": "suffix:°"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "rate"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Rate (${unit:text} per hour)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "outdoor"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Outdoor"
+              },
+              {
+                "id": "unit",
+                "value": "suffix:°"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "id": 5,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "climatectl-sqlite"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Humidity",
+      "description": "Indoor relative humidity per thermostat, and outdoor.",
+      "gridPos": {
+        "x": 0,
+        "y": 33,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "climatectl-sqlite"
+          },
+          "queryType": "time series",
+          "rawQueryText": "SELECT s.taken_at AS time, t.name AS level, s.humidity_pct AS indoor\nFROM thermostat_snapshot s JOIN thermostat t USING (device_id)\nWHERE s.taken_at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-6 hours') AND s.taken_at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch') AND s.humidity_pct IS NOT NULL AND s.online IS NOT 0\nORDER BY s.taken_at\n",
+          "queryText": "SELECT s.taken_at AS time, t.name AS level, s.humidity_pct AS indoor\nFROM thermostat_snapshot s JOIN thermostat t USING (device_id)\nWHERE s.taken_at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-6 hours') AND s.taken_at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch') AND s.humidity_pct IS NOT NULL AND s.online IS NOT 0\nORDER BY s.taken_at\n",
+          "timeColumns": [
+            "time"
+          ]
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "climatectl-sqlite"
+          },
+          "queryType": "time series",
+          "rawQueryText": "SELECT observed_at AS time, humidity_pct AS outdoor\nFROM weather_observation\nWHERE observed_at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-6 hours') AND observed_at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY observed_at\n",
+          "queryText": "SELECT observed_at AS time, humidity_pct AS outdoor\nFROM weather_observation\nWHERE observed_at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-6 hours') AND observed_at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY observed_at\n",
+          "timeColumns": [
+            "time"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "displayName": "${__field.labels.level} ${__field.name}",
+          "custom": {
+            "lineWidth": 2,
+            "lineInterpolation": "stepAfter",
+            "spanNulls": 3600000,
+            "showPoints": "never",
+            "fillOpacity": 0,
+            "insertNulls": 3600000
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Outdoor"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              },
+              {
+                "id": "custom.lineInterpolation",
+                "value": "smooth"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "id": 6,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "climatectl-sqlite"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Dew point (${unit:text})",
+      "description": "Water in the air per thermostat, and outdoor. Unlike relative humidity it compares across temperatures: open windows dry the house when the outdoor line is below the indoor ones.",
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "climatectl-sqlite"
+          },
+          "queryType": "time series",
+          "rawQueryText": "SELECT at AS time, level, CASE '${unit}' WHEN 'celsius' THEN dew_point_c ELSE dew_point_c * 9 / 5 + 32 END AS indoor\nFROM dew_point\nWHERE level <> 'Outdoor' AND at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-6 hours') AND at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY at\n",
+          "queryText": "SELECT at AS time, level, CASE '${unit}' WHEN 'celsius' THEN dew_point_c ELSE dew_point_c * 9 / 5 + 32 END AS indoor\nFROM dew_point\nWHERE level <> 'Outdoor' AND at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-6 hours') AND at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY at\n",
+          "timeColumns": [
+            "time"
+          ]
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "climatectl-sqlite"
+          },
+          "queryType": "time series",
+          "rawQueryText": "SELECT at AS time, CASE '${unit}' WHEN 'celsius' THEN dew_point_c ELSE dew_point_c * 9 / 5 + 32 END AS outdoor\nFROM dew_point\nWHERE level = 'Outdoor' AND at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-6 hours') AND at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY at\n",
+          "queryText": "SELECT at AS time, CASE '${unit}' WHEN 'celsius' THEN dew_point_c ELSE dew_point_c * 9 / 5 + 32 END AS outdoor\nFROM dew_point\nWHERE level = 'Outdoor' AND at >= strftime('%Y-%m-%dT%H:%M:%SZ', $__from / 1000, 'unixepoch', '-6 hours') AND at <= strftime('%Y-%m-%dT%H:%M:%SZ', $__to / 1000, 'unixepoch')\nORDER BY at\n",
+          "timeColumns": [
+            "time"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:°",
+          "decimals": 1,
+          "displayName": "${__field.labels.level} ${__field.name}",
+          "custom": {
+            "lineWidth": 2,
+            "lineInterpolation": "stepAfter",
+            "spanNulls": 3600000,
+            "showPoints": "never",
+            "fillOpacity": 0,
+            "insertNulls": 3600000
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Outdoor"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              },
+              {
+                "id": "custom.lineInterpolation",
+                "value": "smooth"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "id": 7,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "climatectl-sqlite"
+      }
+    }
+  ]
+}

@@ -25,7 +25,7 @@ def load_settings() -> dict[str, str]:
     if missing == ["GOOGLE_REFRESH_TOKEN"]:
         raise ConfigError("No GOOGLE_REFRESH_TOKEN yet. Run `climatectl nest-auth` first.")
     if missing:
-        raise ConfigError(f"Missing in {envfile.env_path()}: {', '.join(missing)}")
+        raise envfile.missing(missing)
     return settings
 
 

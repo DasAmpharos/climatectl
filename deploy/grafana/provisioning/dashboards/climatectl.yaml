@@ -1,0 +1,10 @@
+# Dashboards come from deploy/grafana/dashboards, baked into the image. Edits made in the UI
+# are rejected: change the JSON instead, or save a copy of the dashboard under a new name.
+apiVersion: 1
+providers:
+  - name: climatectl
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/climatectl/dashboards

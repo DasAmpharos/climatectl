@@ -22,3 +22,9 @@ def test_set_value_appends_and_locks_down(tmp_path):
 def test_env_path_from_the_environment(monkeypatch, tmp_path):
     monkeypatch.setenv("CLIMATECTL_ENV_FILE", str(tmp_path / "custom.env"))
     assert envfile.env_path() == tmp_path / "custom.env"
+
+
+def test_missing_names_the_file_or_the_environment(env_file, monkeypatch, tmp_path):
+    assert str(envfile.missing(["A", "B"])) == f"Missing in {env_file}: A, B"
+    monkeypatch.setenv("CLIMATECTL_ENV_FILE", str(tmp_path / "none" / ".env"))
+    assert str(envfile.missing(["A"])) == "Missing (set them in .env or the environment): A"

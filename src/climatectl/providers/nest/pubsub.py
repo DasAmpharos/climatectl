@@ -64,7 +64,7 @@ def subscription_path() -> str:
     name = settings.get("PUBSUB_SUBSCRIPTION", DEFAULT_SUBSCRIPTION)
     if not name.startswith("projects/"):
         if "GCP_PROJECT_ID" not in settings:
-            raise ConfigError(f"Missing in {envfile.env_path()}: GCP_PROJECT_ID")
+            raise envfile.missing(["GCP_PROJECT_ID"])
         name = f"projects/{settings['GCP_PROJECT_ID']}/subscriptions/{name}"
     if not SUBSCRIPTION_PATH.match(name):
         raise ConfigError(f"Not a Pub/Sub subscription path: {name}")

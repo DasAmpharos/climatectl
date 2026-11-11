@@ -43,7 +43,7 @@ class Location:
         settings = envfile.read_settings(keys)
         missing = [k for k in keys if k not in settings]
         if missing:
-            raise ConfigError(f"Missing in {envfile.env_path()}: {', '.join(missing)}")
+            raise envfile.missing(missing)
         try:
             lat, lon = (round(float(settings[k]), 2) for k in keys)
         except ValueError:

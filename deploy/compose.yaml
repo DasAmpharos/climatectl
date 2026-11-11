@@ -1,0 +1,68 @@
+# climatectl with Docker Compose: the logger and Grafana with the dashboard. Copy this file
+# and climatectl's .env.example (as .env) into one folder, fill in .env, then:
+#
+#   docker compose up -d
+#
+# and open http://<this machine>:3000 (user admin, password GRAFANA_ADMIN_PASSWORD).
+# `docker compose logs -f logger` shows each cycle. See "Running with Docker" in the README.
+name: climatectl
+
+x-hardening: &hardening
+  restart: unless-stopped
+  user: "10001:10001"
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  logger:
+    <<: *hardening
+    image: ghcr.io/dasampharos/climatectl:${CLIMATECTL_VERSION:-0.2.0}
+    command: ["logger"]
+    env_file: .env
+    environment:
+      CLIMATECTL_DB: /data/climatectl.db
+      HOME: /tmp
+    volumes:
+      - data:/data
+      # Nest events: uncomment and set GOOGLE_APPLICATION_CREDENTIALS in .env to
+      # /run/secrets/pubsub-key.json (the service account key that reads the subscription).
+      # - ./pubsub-key.json:/run/secrets/pubsub-key.json:ro
+    mem_limit: 256m
+    pids_limit: 50
+
+  grafana:
+    <<: *hardening
+    image: ghcr.io/dasampharos/climatectl-grafana:${CLIMATECTL_VERSION:-0.2.0}
+    # Only what Grafana needs from .env, not the thermostat or alert credentials.
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      CLIMATECTL_DB: /data/climatectl.db
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana:/var/lib/grafana
+      # Read-write: SQLite needs the -shm file next to a WAL database even to read it. The
+      # data source opens the database itself read-only.
+      - data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 3m  # the first start runs Grafana's database migrations
+      retries: 3
+    mem_limit: 512m
+    pids_limit: 200
+
+volumes:
+  data:
+  grafana:
