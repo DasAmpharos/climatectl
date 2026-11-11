@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+      - run: uv run --locked ruff check
+      - run: uv run --locked ruff format --check
+      - run: uv run --locked pytest
+
+  # Build the logger image and run it the way compose does (non-root, read-only), on both
+  # platforms the release publishes. A dependency without an arm64 wheel would otherwise only
+  # show up on someone's Raspberry Pi. The arm64 run uses QEMU emulation, so it is slower.
+  logger-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        if: matrix.platform == 'linux/arm64'
+      - run: docker build --platform ${{ matrix.platform }} --build-arg VERSION=0.0.0+ci -t climatectl:ci .
+      - name: Smoke test the image
+        run: |
+          run() { docker run --rm --platform ${{ matrix.platform }} --user 10001:10001 \
+                    --read-only --tmpfs /tmp --cap-drop ALL -e HOME=/tmp climatectl:ci "$@"; }
+          run --version | grep -qx "climatectl 0.0.0+ci"
+          run status --help | grep -q -- "--json"
+          # No settings: the logger must say what's missing and stop, not crash.
+          out=$(run logger --once 2>&1) && exit 1
+          echo "$out" | grep -q "Missing (set them in .env or the environment): HOME_LATITUDE"
+
+  # Run every dashboard query through the real Grafana image against the demo data, in °F
+  # and °C, so a change to the views that empties a panel fails here.
+  dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+      - run: docker build -t climatectl-grafana:ci deploy/grafana
+      - run: uv run --locked python deploy/demo_data.py data/demo.db && chmod -R a+rwX data
+      - name: Start Grafana on the demo data
+        run: |
+          docker run -d --name grafana -p 3000:3000 --read-only --tmpfs /tmp \
+            --tmpfs /var/lib/grafana:uid=10001,gid=10001 -v "$PWD/data:/data" \
+            -e CLIMATECTL_DB=/data/demo.db -e GF_SECURITY_ADMIN_PASSWORD=ci-only-password \
+            climatectl-grafana:ci
+      - run: uv run --locked python deploy/check_dashboard.py http://localhost:3000
+        env:
+          GRAFANA_ADMIN_PASSWORD: ci-only-password
+      - if: failure()
+        run: docker logs grafana
