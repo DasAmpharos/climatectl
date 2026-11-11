@@ -28,12 +28,61 @@ API) is the only one so far, and others plug in behind the same small interface 
 [Providers](#providers)). The names follow Home Assistant's climate entities, so a Home
 Assistant provider would be a thin one.
 
-This repo is only the code. Keep your own settings (`.env`) and any deployment files in a
-separate, private repo or folder, and install climatectl there.
+This repo is only the code. Keep your own settings (`.env`) in a separate, private folder
+or repo. Run climatectl there with Docker (the logger plus Grafana with the dashboard, see
+[Running with Docker](#running-with-docker)), or install it with uv (see
+[Setting up your own config](#setting-up-your-own-config)).
 
-Requires Python 3.14 (uv installs it for you).
+## Running with Docker
+
+Each release publishes two images for amd64 and arm64 (a Raspberry Pi works):
+`ghcr.io/dasampharos/climatectl` (the logger) and `ghcr.io/dasampharos/climatectl-grafana`
+(Grafana with the SQLite plugin, the data source and the dashboard built in). Put
+[`deploy/compose.yaml`](deploy/compose.yaml) and [`.env.example`](.env.example), renamed to
+`.env`, in a folder of their own, fill in `.env` (see [Settings](#settings), plus
+`GRAFANA_ADMIN_PASSWORD`), then:
+
+```bash
+docker compose up -d
+docker compose logs -f logger    # one line per cycle: weather, thermostats, events, alerts
+```
+
+Grafana is on port 3000 (`GRAFANA_PORT` to change it): user `admin`, password
+`GRAFANA_ADMIN_PASSWORD`. The dashboard has a °F/°C switch at the top. The database and
+Grafana's own settings live in Docker volumes (`climatectl_data`, `climatectl_grafana`), so
+they survive upgrades. To upgrade, set `CLIMATECTL_VERSION` to the new release and run
+`docker compose up -d` again.
+
+For Nest, run the one-time authorization in the same folder before starting the logger. It
+needs [uv](https://docs.astral.sh/uv/), and writes the refresh token into `.env`:
+
+```bash
+uvx --from git+https://github.com/DasAmpharos/climatectl@v0.2.0 climatectl nest-auth
+```
+
+For Nest events, also mount the Pub/Sub service account key (see the comment in
+`compose.yaml`).
+
+### Trying the dashboard
+
+`deploy/demo_data.py` writes three simulated days for two thermostats, ending now. To see
+the dashboard without connecting a thermostat, from a checkout:
+
+```bash
+uv run python deploy/demo_data.py data/demo.db && chmod -R a+rwX data
+docker run --rm -p 3000:3000 -v "$PWD/data:/data" -e CLIMATECTL_DB=/data/demo.db \
+  -e GF_AUTH_ANONYMOUS_ENABLED=true ghcr.io/dasampharos/climatectl-grafana:0.2.0
+```
+
+Then open http://localhost:3000. The dashboard's JSON is
+`deploy/grafana/dashboards/house.json`. To change it, edit a copy in Grafana, export it
+(Share → Export → JSON), and replace the file. `deploy/check_dashboard.py` runs every query
+against a running Grafana, which CI does on every pull request.
 
 ## Setting up your own config
+
+To run climatectl without Docker, or to work on it, install it with uv. Requires Python 3.14
+(uv installs it for you).
 
 Make a folder (ideally a private git repo):
 
@@ -58,7 +107,7 @@ package = false
 
 [tool.uv.sources]
 # Pin a tag or commit so updates to the shared code only reach you when you choose.
-climatectl = { git = "https://github.com/DasAmpharos/climatectl", tag = "v0.1.0" }
+climatectl = { git = "https://github.com/DasAmpharos/climatectl", tag = "v0.2.0" }
 # Or, while working on the shared code next to it:
 # climatectl = { path = "../climatectl", editable = true }
 ```
@@ -169,10 +218,14 @@ example, and `providers/nest/` is the real one.
 uv sync
 uv run pytest
 uv run ruff check . && uv run ruff format .
+docker build -t climatectl:dev . && docker build -t climatectl-grafana:dev deploy/grafana
 ```
 
 Tests run against in-memory fakes of Google's APIs, Open-Meteo and Pushover, and never read
-a real `.env`.
+a real `.env`. To run `deploy/compose.yaml` with images you built, tag them
+`ghcr.io/dasampharos/climatectl:dev` and `ghcr.io/dasampharos/climatectl-grafana:dev` and set
+`CLIMATECTL_VERSION=dev`. See [CONTRIBUTING.md](CONTRIBUTING.md) for pull requests and new
+providers.
 
 ## Releasing
 
@@ -185,6 +238,9 @@ git tag -a v0.2.0 -m "v0.2.0"   # semver: bump the minor for features, the patch
 git push origin v0.2.0
 ```
 
-Config repos then move to it by changing `tag = "v0.2.0"` and running `uv lock`.
+The tag also publishes both Docker images (`.github/workflows/release.yml`). Docker users
+move to it with `CLIMATECTL_VERSION`, and config repos by changing `tag = "v0.2.0"` and
+running `uv lock`. Update the default `CLIMATECTL_VERSION` in `deploy/compose.yaml` and the
+version in this README's examples in the release's pull request.
 `climatectl --version` shows what is installed. Between tags, builds get a development
 version such as `0.2.1.dev2+g1a2b3c4`.

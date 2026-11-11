@@ -1,0 +1,15 @@
+# Only pyproject.toml, uv.lock, README.md and src/ go into the logger image; keep secrets and
+# bulk out of the build context entirely.
+.git/
+.github/
+.venv/
+.env
+.env.*
+!.env.example
+*.json
+data/
+deploy/
+tests/
+.pytest_cache/
+.ruff_cache/
+**/__pycache__/

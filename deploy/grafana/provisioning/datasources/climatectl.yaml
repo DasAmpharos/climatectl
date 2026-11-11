@@ -1,0 +1,15 @@
+# The logger's database, opened read-only (the plugin also adds query_only). SQLite still
+# needs write access to the -shm file next to a WAL database, so the volume is read-write.
+# busy_timeout: each panel query opens its own connection, and without it a query fails at
+# once ("database is locked") when another connection briefly holds a lock.
+apiVersion: 1
+datasources:
+  - name: climatectl
+    uid: climatectl-sqlite
+    type: frser-sqlite-datasource
+    access: proxy
+    isDefault: true
+    editable: false
+    jsonData:
+      path: $CLIMATECTL_DB
+      pathOptions: mode=ro&_pragma=busy_timeout(10000)

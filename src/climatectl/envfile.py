@@ -21,6 +21,14 @@ class ConfigError(RuntimeError):
     pass
 
 
+def missing(keys: list[str]) -> ConfigError:
+    """The error for settings that aren't set, naming where they were looked for. In a
+    container there is usually no .env, only the environment."""
+    path = env_path()
+    where = f"in {path}" if path.exists() else "(set them in .env or the environment)"
+    return ConfigError(f"Missing {where}: {', '.join(keys)}")
+
+
 def load(path: Path) -> dict[str, str]:
     return {k: v for k, v in dotenv_values(path).items() if v is not None}
 
