@@ -9,6 +9,8 @@ dependencies = [
     "python-dotenv>=1.0",
     "google-auth>=2.30",  # the Nest provider's Pub/Sub events
     "tzdata>=2026.6",
+    "anthropic>=2.8,<3",
+    "pyyaml>=6.0",
 ]
 
 [dependency-groups]

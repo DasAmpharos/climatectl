@@ -138,8 +138,51 @@ can set them too. `climatectl <command> --help` lists each command's options.
 | `ALERT_FLOOR`, `ALERT_CEILING` | Indoor temperatures that alert whatever the mode, with their unit. Default `55F` (a pipe-freeze margin) and `86F`. |
 | `HEALTHCHECK_URL` | Optional. A [healthchecks.io](https://healthchecks.io) (or similar) URL pinged after every cycle, so you hear when the logger itself stops. |
 | `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_KEY` | Optional. Without them, alerts are only logged and kept in the `alert` table. |
+| `ANTHROPIC_API_KEY` | For `climatectl plan` only, and optional: without it, the Anthropic SDK finds credentials itself, such as an [`ant`](https://github.com/anthropics/anthropic-cli) `ant auth login` profile. Never printed. |
+| `PLANNER_CONFIG` | The planner's settings. Default `planner.yaml` next to `.env`. |
 
 Treat the healthcheck URL and the Pushover values as secrets: the logger never prints them.
+
+## Planner (dry run)
+
+`climatectl plan` asks Claude for a 24-hour setpoint plan per thermostat: the least heating and
+cooling that keeps each one inside its comfort bands. So far it only plans: each run is stored
+in the `plan_run` table, and nothing is written to a thermostat.
+
+Copy [`planner.example.yaml`](planner.example.yaml) to `planner.yaml` next to `.env` and
+describe the house, each thermostat's comfort bands (a default band, plus timed ones such as
+sleep) and the limits. Set `ANTHROPIC_API_KEY`, or sign in once with `ant auth login`. Then:
+
+```bash
+uv run climatectl plan --input-only   # print exactly what would be sent; free
+uv run climatectl plan                # one call: prints the plan, its reasons and the cost
+```
+
+Each run sends:
+- each thermostat's current state and bands
+- its house model, fitted from your data (`planner/house.py`): heat loss with the HVAC off, the
+  furnace's and AC's rates, and the warming on sunny days
+- the next 24 hours of forecast, the last 7 days of runtime and degree-days
+- the last 4 weeks of the optional feedback CSV, and the optional notes file
+
+Device ids, the home location and secrets are never sent; the house description and the
+feedback file are, so keep addresses out of them. About 6,000 tokens in: a few cents a run on
+`claude-opus-5-5`, a fraction of a cent on `claude-haiku-5-5`.
+
+Whatever Claude returns, guardrails in code (`planner/guardrails.py`) keep every setpoint
+inside the comfort bands, the floor and ceiling, a minimum heat-cool gap, a maximum step and a
+minimum interval between changes, and skip a thermostat that is offline, in Eco, off, or was
+changed by hand in the last few hours. Each fix is stored as a correction, so a model that
+needs them stands out. `plan_run` also keeps the input, the reply, the tokens and an estimated
+cost.
+
+Each plan is then scored by a simulator (`planner/simulate.py`): it runs the plan through the
+house model against the forecast, 24 hours in 5-minute steps, and reports per thermostat the
+minutes outside the comfort bands, the furnace and AC minutes, and the worst miss. Two baselines
+are scored next to it: holding the current setpoints all day (no AI), and switching to each
+band's edges as it starts (no pre-heating). `climatectl score [RUN_ID ...]` re-scores stored
+plans. The simulator isn't calibrated yet: replaying held days, it has under-counted furnace
+minutes by 10-50%, so use it to compare plans with each other, not as a prediction.
 
 ## Nest setup
 
@@ -203,7 +246,8 @@ function that returns an object with:
 
 - `name` (used in messages) and `hints`: extra advice per alert, e.g. how to re-authorize.
 - `thermostats()` → a list of `climatectl.thermostat.Thermostat` in the vocabulary above.
-- `set_range(device_id, heat_c, cool_c)` sets the setpoints. The logger never calls it.
+- `set_range(device_id, heat_c, cool_c)` sets the setpoints. Nothing calls it yet: the
+  planner only plans.
 - `events()` → an event source whose `drain(conn, received_at)` saves the waiting changes
   with `store.save_events` and returns how many were new. Or None if the provider has none.
 - `prepare(conn)` creates any tables of its own, on every logger start.
