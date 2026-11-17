@@ -10,6 +10,8 @@ from importlib.metadata import PackageNotFoundError, version
 COMMANDS = {
     "logger": "climatectl.logger_cli",
     "status": "climatectl.status_cli",
+    "plan": "climatectl.planner.cli",
+    "score": "climatectl.planner.score_cli",
     "nest-auth": "climatectl.providers.nest.auth_cli",
 }
 

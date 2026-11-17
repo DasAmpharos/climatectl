@@ -102,6 +102,8 @@ def env_file(monkeypatch, tmp_path):
         "HEALTHCHECK_URL",
         "PUSHOVER_APP_TOKEN",
         "PUSHOVER_USER_KEY",
+        "ANTHROPIC_API_KEY",
+        "PLANNER_CONFIG",
     ):
         monkeypatch.delenv(var, raising=False)
     return path

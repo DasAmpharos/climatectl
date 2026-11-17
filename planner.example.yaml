@@ -1,0 +1,46 @@
+# The planner's settings for one house (`climatectl plan`). Copy to planner.yaml next to .env,
+# or point PLANNER_CONFIG at it. Everything in `house` and `about` is sent to Claude, so describe
+# the house, not where it is: no address or location.
+
+unit: F                  # F or C: how temperatures are written here and shown to Claude
+model: claude-opus-5-5   # optional; claude-sonnet-5-5 and claude-haiku-5-5 cost less
+effort: medium           # optional: low, medium, high, xhigh or max
+
+house: >
+  Two floors. Each has its own gas furnace, central AC and thermostat. Heat rises, so the upstairs
+  gets some warmth from downstairs. The blinds stay closed.
+
+levels:
+  # Each key is a thermostat's name (as `climatectl status` shows it) or its device id.
+  Upstairs:
+    about: Thermostat in the main bedroom.
+    bands:                 # the coldest (heat) and warmest (cool) acceptable temperature
+      - name: day          # one band without from/to: the default
+        heat: 64
+        cool: 72
+      - name: sleep
+        from: "22:00"
+        to: "07:00"
+        heat: 62
+        cool: 69
+  Downstairs:
+    about: Thermostat in the living room, next to the kitchen.
+    bands:
+      - name: day
+        heat: 64
+        cool: 72
+
+limits:                    # optional; these are the defaults (in the file's unit)
+  floor: 55                # setpoints never go below this (a pipe-freeze margin)
+  ceiling: 86
+  min_gap: 3               # cool at least this far above heat
+  max_step: 6              # the largest change from one setpoint to the next
+  min_interval_minutes: 60 # between changes on a level
+  manual_pause_hours: 4    # a change made at the thermostat pauses the planner this long
+
+# Optional, relative to this file. Notes are learned preferences, kept short; the planner
+# suggests updates in plan_run.notes_update. Feedback is a CSV with an at_utc column (UTC,
+# 2026-11-08T12:45:00Z) and anything else (level, feeling, readings, a note); the last 4 weeks
+# are sent.
+# notes: notes.md
+# feedback: feedback.csv

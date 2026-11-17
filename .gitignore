@@ -13,3 +13,5 @@ data/
 client-secret*.json
 client_secret*.json
 *service-account*.json
+# Personal planner settings, next to .env
+planner.yaml
