@@ -25,7 +25,11 @@ from .thermostat import CALLING, HEATING
 LOOKBACK = timedelta(hours=6)  # history each check looks at
 FRESH = timedelta(minutes=30)  # device checks skip a device with no data this recent
 
+# Heating alerts when the reading hasn't risen at all after HEAT_GRACE, or by less than
+# MIN_RISE_C after HEAT_SLOW: recovering from a setback, the furnace warms the walls and
+# furniture too, and the reading can rise only a few tenths in the first half hour.
 HEAT_GRACE = timedelta(minutes=30)
+HEAT_SLOW = timedelta(minutes=60)
 MIN_RISE_C = 0.3
 COOL_GRACE = timedelta(minutes=45)
 MIN_DROP_C = 0.3
@@ -143,7 +147,12 @@ def _device(d: Device, now: datetime, limits: Limits) -> list[Finding]:
         before = _value_at(d.temps, current.start)
         if now - current.start >= grace and before is not None:
             change = d.temps[-1][1] - before
-            if (change if heating else -change) < (MIN_RISE_C if heating else MIN_DROP_C):
+            if heating:
+                needed = MIN_RISE_C if now - current.start >= HEAT_SLOW else 0.01
+                stuck = change < needed
+            else:
+                stuck = -change < MIN_DROP_C
+            if stuck:
                 found.append(_no_response(d, current, before, now))
 
     short = [

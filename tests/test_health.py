@@ -75,12 +75,23 @@ def test_heating_that_warms_the_house_is_fine(conn):
 
 
 def test_heating_without_a_rise_alerts(conn):
-    calling(conn, "heating", 40, before=18.0, after=18.1)
+    calling(conn, "heating", 65, before=18.0, after=18.1)
     (finding,) = health.check(conn, NOW, events_enabled=False)
     assert finding.key == "heat_no_rise:up"
     assert finding.title == "Upstairs: furnace may not be working"
-    assert "for 40 min" in finding.message and "64.4°F to 64.6°F (+0.2°F)" in finding.message
+    assert "for 1 h 5 min" in finding.message and "64.4°F to 64.6°F (+0.2°F)" in finding.message
     assert finding.title.isascii()
+
+
+def test_heating_with_no_rise_at_all_alerts_after_the_grace(conn):
+    calling(conn, "heating", 35, before=18.0, after=17.9)
+    assert keys(conn) == ["heat_no_rise:up"]
+
+
+def test_a_slow_start_after_a_setback_is_fine(conn):
+    # 61.4F to 61.8F in the first 31 minutes of a recovery from a 60F setback: slow, not broken.
+    calling(conn, "heating", 31, before=16.33, after=16.56)
+    assert keys(conn) == []
 
 
 def test_heating_gets_a_grace_period(conn):

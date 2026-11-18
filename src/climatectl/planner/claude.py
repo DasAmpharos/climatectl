@@ -48,15 +48,18 @@ How the thermostats work:
   of a stricter band the level couldn't otherwise reach in time.
 - Each thermostat reads one room, so "inside the band" means at the thermostat.
 
-Each level's house_model is measured from the logged data (null where there isn't enough yet):
-- heat_loss_per_hour_per_degree_of_difference: with the HVAC off, the level drifts toward the
-  outdoor temperature by this fraction of the indoor-outdoor difference each hour. For example
-  0.02 with 64 inside and 44 outside is about -0.4 per hour. outdoor_range_fitted is the outdoor
-  range it was measured over; outside that range it's an extrapolation.
-- furnace_degrees_per_hour and ac_degrees_per_hour: how fast the furnace warms the level and the
-  AC cools it (negative) while running.
-- sunny_day_rise_per_kwh_m2: roughly how much a level warms from 08:00 to the afternoon peak per
-  kWh/m2 of sun (sum the forecast's sun_w_m2 over those hours and divide by 1000).
+Each level's house_model is fitted to the logged readings (null where there isn't enough yet).
+Per hour, a level changes by:
+  -heat_loss_per_hour_per_degree_of_difference * (indoor - outdoor)
+  + furnace_degrees_per_hour while the furnace runs, ac_degrees_per_hour (negative) while the
+    AC runs
+  + sun_degrees_per_hour_per_kw_m2 * sun_w_m2 / 1000
+  + other_gains_degrees_per_hour (people, appliances, the other level)
+For example a loss of 0.03 with 64 inside and 44 outside is -0.6 an hour. The furnace and AC
+rates are effective rates over whole days: they predict how long the equipment runs, but a
+recovery after a setback is usually faster than they suggest, so pre-heating needn't start
+earlier than they say. typical_miss is how far the fitted model's readings were off, and
+outdoor_range_fitted the outdoor range it was fitted over; outside it, it's an extrapolation.
 recent_days shows furnace and AC minutes against degree-days, as a check on the model.
 
 Use the forecast and the model to avoid waste: let a level coast toward the band's edge when the

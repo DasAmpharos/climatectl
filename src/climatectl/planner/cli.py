@@ -1,4 +1,4 @@
-"""`climatectl plan`: a 24-hour setpoint plan from Claude (a dry run: never applied).
+"""`climatectl plan`: a 24-hour setpoint plan from Claude (a dry run; `apply` runs a trial).
 
 The plan is checked by the guardrails, scored by the simulator against the no-AI baselines
 (see `climatectl score`) and stored in plan_run; nothing is written to a thermostat.

@@ -45,12 +45,14 @@ limits:                    # optional; these are the defaults (in the file's uni
 # notes: notes.md
 # feedback: feedback.csv
 
-# Optional: a trial for `climatectl scorecard`. Planned days (the planner's schedule) and hold
+# Optional: a trial, run by `climatectl apply` and scored by `climatectl scorecard`. Planned days (the planner's schedule) and hold
 # days (fixed setpoints) alternate, counted from `start` (day 0 planned), so every level is on
 # the same arm on the same day and both arms see the same weeks of weather. A trial day runs
 # from day_starts to day_starts, so a night stays with its morning recovery. Before a level's
 # first day (and from baseline_from) its days are the baseline. The scorecard fits furnace
 # minutes to the weather on the hold and baseline days and compares the arms through it.
+# `climatectl apply` takes the plan from `model` made at day_starts: schedule `climatectl plan`
+# for then.
 trial:
   start: 2026-12-01
   end: 2026-12-21          # the last trial day

@@ -162,8 +162,8 @@ uv run climatectl plan --model claude-haiku-5-5 --model claude-opus-5-5
 
 Each run sends:
 - each thermostat's current state and bands
-- its house model, fitted from your data (`planner/house.py`): heat loss with the HVAC off, the
-  furnace's and AC's rates, and the warming on sunny days
+- its house model, fitted to your readings (`planner/house.py`): the heat loss, the furnace's
+  and AC's effective rates, the sun's warming and other steady gains
 - the next 24 hours of forecast, the last 7 days of runtime and degree-days
 - the last 4 weeks of the optional feedback CSV, and the optional notes file
 
@@ -183,8 +183,10 @@ house model against the forecast, 24 hours in 5-minute steps, and reports per th
 minutes outside the comfort bands, the furnace and AC minutes, and the worst miss. Two baselines
 are scored next to it: holding the current setpoints all day (no AI), and switching to each
 band's edges as it starts (no pre-heating). `climatectl score [RUN_ID ...]` re-scores stored
-plans. The simulator isn't calibrated yet: replaying held days, it has under-counted furnace
-minutes by 10-50%, so use it to compare plans with each other, not as a prediction.
+plans. The house model is fitted to whole days of readings, so the simulator predicts how long
+the furnace runs: replaying cold days held at fixed setpoints, within about 15% a day once a
+level has a month of furnace runs. Its recoveries after a setback are slower than real ones,
+so it pre-heats early rather than late.
 
 ### Trial and scorecard
 
@@ -197,6 +199,16 @@ days at the hold setpoints, and compares the arms through that fit: the saving a
 95% interval. Before the trial it says the smallest saving the trial could detect, and it
 checks the simulator's predictions against days that really held. Days are saved in
 `scorecard_day` for dashboards.
+
+`climatectl apply` runs the trial: it writes the plan's changes at their times on planned days,
+and the hold setpoints when a hold day starts. It applies the first plan from the config's
+`model` made when the day starts (from 15 minutes before to 30 after), so schedule
+`climatectl plan` for `day_starts`; with no plan by then, the day is left as it is, you're told
+(through Pushover, if set up) and the scorecard leaves it out. A change made by a person wins:
+the level is left alone until the next trial day, and taken over then only once
+`manual_pause_hours` have passed since the change. Offline, Eco and off skip a step. Every step
+is kept in `apply_step`, with what was set or why not, so it can be restarted at any time: it
+writes only the step due now. `--dry-run` says what it would set and writes nothing.
 
 ## Nest setup
 
