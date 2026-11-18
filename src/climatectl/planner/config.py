@@ -5,7 +5,7 @@ Celsius here. See planner.example.yaml for every field."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import time, timedelta
+from datetime import date, time, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +21,12 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max")
 DEFAULT_LIMITS_F = {"floor": 55, "ceiling": 86, "min_gap": 3, "max_step": 6}
 DEFAULT_MIN_INTERVAL_MINUTES = 60
 DEFAULT_MANUAL_PAUSE_HOURS = 4
+DEFAULT_TRIAL_DAY_STARTS = time(21, 0)
+DEFAULT_TRIAL_TOLERANCE_F = 1.0
+# The trial's arms. Before a level's first trial day (and from baseline_from) it's "baseline";
+# then the days alternate "planned" and "hold", counted from the trial's start so every level
+# is on the same arm on the same day; "skipped" days are left out; "after" follows the end.
+ARMS = ("baseline", "planned", "hold", "skipped", "after")
 
 
 def to_c(value: float, unit: str) -> float:
@@ -89,6 +95,34 @@ class Limits:
 
 
 @dataclass(frozen=True)
+class Trial:
+    """Alternating days: the planner's schedule on one, fixed hold setpoints on the next, so
+    their energy can be compared in the same run of weather (see scorecard.py). A trial day
+    runs from day_starts to day_starts the next day, so a night and its morning recovery stay
+    together; it's named by the date it starts."""
+
+    start: date  # day 0, planned
+    end: date  # the last trial day
+    day_starts: time
+    hold_heat_c: float
+    hold_cool_c: float
+    levels: dict[str, date]  # level key -> its first trial day
+    baseline_from: date | None
+    skip: frozenset[date]
+    tolerance_c: float  # how far past a band counts as outside it (thermostats cycle ~1F)
+
+    def arm(self, level: str, day: date) -> str:
+        if day in self.skip:
+            return "skipped"
+        if day > self.end:
+            return "after"
+        first = self.levels.get(level)
+        if first is None or day < first or day < self.start:
+            return "baseline"
+        return "planned" if (day - self.start).days % 2 == 0 else "hold"
+
+
+@dataclass(frozen=True)
 class Config:
     unit: str
     model: str
@@ -98,6 +132,7 @@ class Config:
     limits: Limits
     notes_path: Path | None
     feedback_path: Path | None
+    trial: Trial | None = None
 
 
 def path_from_settings() -> Path:
@@ -137,7 +172,57 @@ def parse(raw: dict[str, Any], base: Path) -> Config:
         limits=limits,
         notes_path=_path(raw.get("notes"), base),
         feedback_path=_path(raw.get("feedback"), base),
+        trial=_trial(raw["trial"], unit, limits, levels) if raw.get("trial") else None,
     )
+
+
+def _trial(raw: Any, unit: str, limits: Limits, levels: dict[str, Any]) -> Trial:
+    if not isinstance(raw, dict):
+        raise ConfigError("trial must be a mapping of settings.")
+    start, end = _date(raw.get("start"), "trial.start"), _date(raw.get("end"), "trial.end")
+    if end < start:
+        raise ConfigError("trial.end must not be before trial.start.")
+    hold = raw.get("hold") or {}
+    heat = to_c(_number(hold.get("heat"), "trial.hold.heat"), unit)
+    cool = to_c(_number(hold.get("cool"), "trial.hold.cool"), unit)
+    if cool - heat < limits.min_gap_c - 1e-9 or heat < limits.floor_c or cool > limits.ceiling_c:
+        raise ConfigError("trial.hold must keep min_gap and lie between floor and ceiling.")
+    firsts = raw.get("levels")
+    if not isinstance(firsts, dict) or not firsts:
+        raise ConfigError("trial.levels must give each trial level its first day.")
+    trial_levels = {}
+    for key, first in firsts.items():
+        if str(key) not in {str(k) for k in levels}:
+            raise ConfigError(f"trial.levels.{key} isn't one of the levels.")
+        day = _date(first, f"trial.levels.{key}")
+        if not start <= day <= end:
+            raise ConfigError(f"trial.levels.{key} must fall between trial.start and trial.end.")
+        trial_levels[str(key)] = day
+    skip = raw.get("skip") or []
+    if not isinstance(skip, list):
+        raise ConfigError("trial.skip must be a list of dates.")
+    tolerance = raw.get("tolerance", DEFAULT_TRIAL_TOLERANCE_F if unit == "F" else 0.5)
+    return Trial(
+        start=start,
+        end=end,
+        day_starts=_time(raw.get("day_starts", DEFAULT_TRIAL_DAY_STARTS), "trial.day_starts"),
+        hold_heat_c=heat,
+        hold_cool_c=cool,
+        levels=trial_levels,
+        baseline_from=_date(raw["baseline_from"], "trial.baseline_from")
+        if raw.get("baseline_from") else None,
+        skip=frozenset(_date(d, "trial.skip") for d in skip),
+        tolerance_c=delta_c(_number(tolerance, "trial.tolerance"), unit),
+    )  # fmt: skip
+
+
+def _date(value: Any, where: str) -> date:
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError:
+        raise ConfigError(f"{where} must be a date like 2026-11-25.") from None
 
 
 def _limits(raw: dict[str, Any], unit: str) -> Limits:
@@ -208,6 +293,8 @@ def _number(value: Any, where: str) -> float:
 
 def _time(value: Any, where: str) -> time:
     # YAML reads an unquoted 22:00 as a number of minutes (sexagesimal); accept both.
+    if isinstance(value, time):
+        return value
     if isinstance(value, int):
         return time(value // 60 % 24, value % 60)
     try:

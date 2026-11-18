@@ -186,6 +186,18 @@ band's edges as it starts (no pre-heating). `climatectl score [RUN_ID ...]` re-s
 plans. The simulator isn't calibrated yet: replaying held days, it has under-counted furnace
 minutes by 10-50%, so use it to compare plans with each other, not as a prediction.
 
+### Trial and scorecard
+
+Once plans are applied, add a `trial` to planner.yaml (see planner.example.yaml): planned days
+and hold days (fixed setpoints) alternate, so both see the same weeks of weather.
+`climatectl scorecard` then lists every trial day per level: its arm, outdoor temperature,
+furnace and AC minutes, how long the reading was really outside the band, and the low. It
+fits furnace minutes to the weather (degree-days, with the base temperature fitted) on the
+days at the hold setpoints, and compares the arms through that fit: the saving a day, with a
+95% interval. Before the trial it says the smallest saving the trial could detect, and it
+checks the simulator's predictions against days that really held. Days are saved in
+`scorecard_day` for dashboards.
+
 ## Nest setup
 
 The Nest provider needs a Google Device Access registration (a one-time US$5 fee) and a
