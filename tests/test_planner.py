@@ -382,6 +382,24 @@ def test_a_first_change_due_soon_starts_now():
     assert plan.levels[0].corrections == []
 
 
+def test_a_setback_due_soon_keeps_its_time():
+    # Tuesday 2026-11-17: planned at 20:28, Opus set the bedroom back to the sleep band's edges
+    # at 21:00. Starting it at 20:28 would break the day band, so it keeps its time.
+    c = cfg(levels={"Upstairs": {"bands": [
+        {"name": "day", "heat": 64, "cool": 72},
+        {"name": "sleep", "from": "12:30", "to": "18:00", "heat": 62, "cool": 68},
+    ]}})  # fmt: skip
+    plan = guardrails.apply(
+        {"levels": [{"level": "Upstairs", "rationale": "",
+                     "changes": [{"at": "2026-11-13T12:30", "heat": 62, "cool": 68},
+                                 {"at": "2026-11-13T18:00", "heat": 64, "cool": 72}]}],
+         "notes_update": ""},
+        ctx_for(c), c,
+    )  # fmt: skip
+    assert changes(plan) == [("Fri 12:30", 62.0, 68.0), ("Fri 18:00", 64.0, 72.0)]
+    assert plan.levels[0].corrections == []
+
+
 def test_heat_only_mode_plans_only_heat():
     c = cfg()
     plan = guardrails.apply(

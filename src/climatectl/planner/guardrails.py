@@ -6,9 +6,11 @@ the first change keeps the current setpoints, so it's checked as a change at now
 fixing, the fix becomes the first change. In order, for each change:
 
 1. Times: in local time, rounded to the quarter hour; before now means now, and beyond the
-   24-hour horizon is dropped. A first change due within min_interval of now starts now; any
-   other change less than min_interval after the previous one is dropped (short-cycling
-   protection).
+   24-hour horizon is dropped. A first change due within min_interval of now starts now if its
+   setpoints already suit the bands in force until then (one change instead of two); otherwise
+   it keeps its time, such as a setback at the moment a looser band starts. Any later change
+   less than min_interval after the previous one is dropped (short-cycling protection). The
+   current setpoints aren't a change, so they never make the first one too soon.
 2. max_step: each setpoint moves at most this far from the one before it.
 3. Comfort: heat is at least, and cool at most, every band in force during the change's span.
    Comfort wins over max_step.
@@ -107,17 +109,19 @@ def _level(out: LevelPlan, changes: list[Any], state, ctx: Context, config: Conf
     # Several changes at or before now: only the last one is in force.
     while len(timed) > 1 and timed[1][0] <= ctx.now:
         timed.pop(0)
-    # A first change due within min_interval of now starts now, so it isn't dropped as too
-    # soon after the current setpoints.
-    if timed and timed[0][0] - ctx.now < limits.min_interval:
-        timed[0] = (ctx.now, *timed[0][1:])
+    # A first change due soon starts now when that keeps the level in its bands until then.
+    if timed and ctx.now < timed[0][0] < ctx.now + limits.min_interval:
+        if _suits(timed[0], _bands(state.level, ctx.now, timed[0][0], ctx), state.mode, unit):
+            timed[0] = (ctx.now, *timed[0][1:])
+    current = None
     if not timed or timed[0][0] > ctx.now:
         heat = state.heat_c and from_c(state.heat_c, unit)
         cool = state.cool_c and from_c(state.cool_c, unit)
-        timed.insert(0, (ctx.now, heat, cool))  # the current setpoints, checked like a change
+        current = (ctx.now, heat, cool)  # the current setpoints, checked like a change
+        timed.insert(0, current)
     kept = [timed[0]]
     for t in timed[1:]:
-        if t[0] - kept[-1][0] < limits.min_interval:
+        if kept[-1] is not current and t[0] - kept[-1][0] < limits.min_interval:
             say(f"dropped the change at {_local(t[0], ctx)}: under {_minutes(limits.min_interval)}"
                 " after the previous one")  # fmt: skip
         else:
@@ -187,6 +191,22 @@ def _parse_local(text: Any, ctx: Context) -> datetime | None:
     seconds = (at - at.replace(minute=0, second=0, microsecond=0)).total_seconds()
     base = at.replace(minute=0, second=0, microsecond=0)
     return base + QUARTER * round(seconds / QUARTER.total_seconds())
+
+
+def _suits(change, bands, mode: str | None, unit: str) -> bool:
+    """Whether a change's setpoints (in `unit`) are inside every one of `bands`."""
+    _, heat_u, cool_u = change
+    heat_ok = (
+        mode == COOL
+        or heat_u is None
+        or (_c(heat_u, unit) >= max(b.heat_c for b in bands) - EPSILON)
+    )
+    cool_ok = (
+        mode == HEAT
+        or cool_u is None
+        or (_c(cool_u, unit) <= min(b.cool_c for b in bands) + EPSILON)
+    )
+    return heat_ok and cool_ok
 
 
 def _bands(level: Level, start: datetime, end: datetime, ctx: Context):
