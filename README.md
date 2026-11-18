@@ -156,6 +156,8 @@ sleep) and the limits. Set `ANTHROPIC_API_KEY`, or sign in once with `ant auth l
 ```bash
 uv run climatectl plan --input-only   # print exactly what would be sent; free
 uv run climatectl plan                # one call: prints the plan, its reasons and the cost
+uv run climatectl plan --model claude-haiku-5-5 --model claude-opus-5-5
+                                      # one plan each from the same input, compared
 ```
 
 Each run sends:
