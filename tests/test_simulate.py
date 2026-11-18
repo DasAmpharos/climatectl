@@ -26,7 +26,7 @@ def payload(temp=68.0, heat=64.0, cool=72.0, outdoor=32.0, sun=0.0, bands=None, 
         "heat_loss_per_hour_per_degree_of_difference": 0.02,
         "furnace_degrees_per_hour": 5.4,
         "ac_degrees_per_hour": -3.6,
-        "sunny_day_rise_per_kwh_m2": 0.0,
+        "sun_degrees_per_hour_per_kw_m2": 0.0,
         **(model or {}),
     }
     return {
@@ -76,9 +76,22 @@ def test_holding_a_setpoint_runs_the_furnace_for_the_heat_lost():
 
 
 def test_sun_offsets_heating():
-    sunny = up(payload(temp=64.0, heat=64.0, sun=200.0, model={"sunny_day_rise_per_kwh_m2": 1.0}))
+    sunny = up(payload(temp=64.0, heat=64.0, sun=200.0,
+                       model={"sun_degrees_per_hour_per_kw_m2": 1.0}))  # fmt: skip
     dark = up(payload(temp=64.0, heat=64.0))
     assert sunny.heat_minutes < dark.heat_minutes
+    # A payload stored before the house model was fitted to whole days still scores.
+    old = payload(temp=64.0, heat=64.0, sun=200.0, model={"sunny_day_rise_per_kwh_m2": 1.0})
+    del old["levels"][0]["house_model"]["sun_degrees_per_hour_per_kw_m2"]
+    assert up(old).heat_minutes == pytest.approx(sunny.heat_minutes)
+
+
+def test_other_gains_offset_the_loss():
+    # 0.02 * 32 = 0.64F an hour lost at 64 with 32 outside; other gains of 0.64 make it up.
+    s = up(payload(temp=64.0, heat=64.0, outdoor=32.0,
+                   model={"other_gains_degrees_per_hour": 0.64}))  # fmt: skip
+    assert s.heat_minutes == pytest.approx(0, abs=0.5)
+    assert s.low_c * 9 / 5 + 32 == pytest.approx(64.0, abs=0.01)
 
 
 def test_a_late_recovery_counts_as_outside_the_band():

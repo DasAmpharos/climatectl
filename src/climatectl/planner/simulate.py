@@ -3,7 +3,7 @@ for 24 hours, how long the furnace and AC run, and how long the room is outside 
 
 Per level, in °C per hour:
 
-    dT/dt = -loss * (T - T_outdoor) + sun * W/m² / 1000 + the furnace or the AC
+    dT/dt = -loss * (T - T_outdoor) + sun * W/m² / 1000 + other + the furnace or the AC
 
 The thermostat is an ideal controller: the furnace runs whenever the room would fall below the
 heat setpoint, for just the share of each step that holds it there, and the AC likewise above
@@ -13,13 +13,19 @@ temperatures differ; the totals are what's compared.
 It works from what the planner was sent (plan_run.input_json), so a stored plan can be scored
 again at any time against the same start, the same house model and the same forecast.
 
+The numbers are the house model's (house.py), fitted to whole days of readings. Replaying five
+cold days held at fixed setpoints, with the observed weather and the model fitted from the days
+before each, the furnace minutes came out within about 15% a day and 2% over the five days for
+a level with a month of furnace runs. The earlier model, with rates measured per run, gave
+about half the real minutes.
+
 Approximations, so scores compare plans with each other rather than predict to the minute:
-- The furnace and AC rates are measured with the heat loss of those runs included and are
-  used as gross rates, so recoveries come out a little slow (about 10% in the cold).
-- The sun term is a net daily rise spread over the day by the forecast's sunshine.
-- People, cooking and warmth moving between levels aren't modelled.
+- The furnace and AC rates are effective ones, fitted over whole days, so they predict the
+  minutes run but recoveries come out slower than the real ones (about half as fast here):
+  pre-heating starts earlier than it needs to.
+- `other` is steady: people, cooking and warmth moving between levels don't follow a clock.
 - A level whose model lacks a number it needs says so in `notes`; that term is left out.
-Nothing here is backtested yet."""
+Payloads stored before that fit (with sunny_day_rise_per_kwh_m2) are scored as they were."""
 
 from __future__ import annotations
 
@@ -57,7 +63,8 @@ class _Model:
     loss: float
     heat: float | None  # °C per hour while the furnace runs
     cool: float | None  # °C per hour while the AC runs (positive here)
-    sun: float  # °C per kWh/m²
+    sun: float  # °C per hour per kW/m²
+    other: float  # °C per hour
 
 
 def score(
@@ -122,7 +129,7 @@ def _level(level, changes, weather, now, zone, unit) -> Score:
         elif mode == HEAT:
             cool_sp = None
         outdoor, sun = _at(weather, at + STEP / 2)
-        temp_c += (-model.loss * (temp_c - outdoor) + model.sun * sun / 1000) * hours
+        temp_c += (-model.loss * (temp_c - outdoor) + model.sun * sun / 1000 + model.other) * hours
         if heat_sp is not None and temp_c < heat_sp and model.heat:
             share = min(1.0, (heat_sp - temp_c) / (model.heat * hours))
             temp_c += share * model.heat * hours
@@ -156,12 +163,14 @@ def _model(raw: dict[str, Any], unit: str, out: Score) -> _Model:
     loss = raw.get("heat_loss_per_hour_per_degree_of_difference")
     if loss is None:
         out.notes.append("no heat-loss rate measured: drift not simulated")
-    sun = raw.get("sunny_day_rise_per_kwh_m2")
+    sun = raw.get("sun_degrees_per_hour_per_kw_m2", raw.get("sunny_day_rise_per_kwh_m2"))
+    other = raw.get("other_gains_degrees_per_hour")
     return _Model(
         loss=loss or 0.0,
         heat=rate("furnace_degrees_per_hour", "furnace"),
         cool=rate("ac_degrees_per_hour", "AC"),
         sun=delta_c(sun, unit) if sun else 0.0,
+        other=delta_c(other, unit) if other else 0.0,
     )
 
 

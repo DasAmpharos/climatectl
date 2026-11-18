@@ -31,6 +31,7 @@ from statistics import fmean, stdev
 from zoneinfo import ZoneInfo
 
 from ..store import parse_utc
+from .apply import NOT_APPLIED
 from .config import Config, Trial, from_c
 
 SAMPLE = timedelta(minutes=5)
@@ -250,7 +251,24 @@ def _day(conn, cfg, trial, level, device, day, start, end, weather, zone) -> Day
         d.notes.append(f"weather for {len(hourly)} of 24 hours")
     if d.arm in ("baseline", "hold") and off_hold > OFF_HOLD_LIMIT_MIN:
         d.notes.append(f"{off_hold:.0f} min away from the hold heat setpoint")
+    if d.arm in ("planned", "hold"):
+        d.notes.extend(_not_applied(conn, level.key, day))
     return d
+
+
+def _not_applied(conn, level: str, day: date) -> list[str]:
+    """Why the applier (apply.py) didn't keep this day to its arm, if it didn't. Days from before
+    the applier, or applied by hand, have no rows and pass."""
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'apply_step'"
+    ).fetchone():
+        return []
+    rows = conn.execute(
+        "SELECT outcome, note FROM apply_step WHERE level = ? AND trial_day = ?"
+        f" AND outcome IN ({', '.join('?' * len(NOT_APPLIED))}) ORDER BY due_at",
+        (level, day.isoformat(), *NOT_APPLIED),
+    ).fetchall()
+    return [f"{outcome}: {note}" for outcome, note in rows]
 
 
 def _hours(start, end):

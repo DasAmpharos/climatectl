@@ -13,6 +13,7 @@ COMMANDS = {
     "plan": "climatectl.planner.cli",
     "score": "climatectl.planner.score_cli",
     "scorecard": "climatectl.planner.scorecard_cli",
+    "apply": "climatectl.planner.apply_cli",
     "nest-auth": "climatectl.providers.nest.auth_cli",
 }
 

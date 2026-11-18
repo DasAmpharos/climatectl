@@ -1,4 +1,5 @@
 import json
+import math
 import re
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
@@ -156,29 +157,51 @@ def test_celsius_config_gets_the_same_default_limits():
 # --- house model ---
 
 
-def test_house_model_from_nights_and_runs(conn):
-    # Ten nights cooling 20.0 -> 18.4°C with 10°C outside, the HVAC idle; snapshots hourly.
-    for day in range(2, 12):
-        start = local(day, 22)
-        for h in range(9):
-            at = start + timedelta(hours=h)
-            snapshot(conn, at, 20.0 - 0.2 * h)
-            outdoor(conn, at, 10.0)
-    # Three 15-minute furnace runs, each 18.0 -> 19.5°C, reported 2 minutes after it stops.
-    for hour in (14, 15, 16):
-        at = local(12, hour)
-        snapshot(conn, at, 18.0)
-        event(conn, at + timedelta(seconds=1), hvac="heating")
-        event(conn, at + timedelta(minutes=15), hvac="idle")
-        event(conn, at + timedelta(minutes=17), temp_c=19.5)
-    m = house.fit(conn, "up", NOW, ZONE)
-    gap = (20.0 + 18.4) / 2 - 10.0
-    assert m.loss_nights == 10
-    assert m.loss_per_h == pytest.approx(0.2 / gap, rel=1e-3)
-    assert m.outdoor_c_range == (10.0, 10.0)
-    assert m.heat_runs == 3
-    assert m.heat_c_per_h == pytest.approx(1.5 / 0.25, rel=0.01)
-    assert m.cool_c_per_h is None and m.cool_runs == 0
+def fake_house(conn, days=4, loss=0.03, heat=1.5, other=0.1, sun=0.0, start_day=9):
+    """A level that follows the house model's equation exactly, in 1-minute steps: the outdoor
+    temperature swings 0-10°C each day, and a thermostat with a 0.3°C swing holds 19°C by day
+    and 17°C from 22:00 to 06:00. Readings every 15 minutes and on each furnace start and stop."""
+    t, on = 19.0, False
+    at = local(start_day, 0)
+    for minute in range(days * 24 * 60):
+        hour = at.astimezone(ZONE).hour
+        out = 5 - 5 * math.cos(2 * math.pi * (hour - 3) / 24)
+        sunshine = max(0.0, 600 * math.sin(math.pi * (hour - 7) / 10)) if 7 <= hour < 17 else 0
+        if minute % 15 == 0:
+            outdoor(conn, at, out, sunshine)
+            snapshot(conn, at, round(t, 2), hvac="heating" if on else "idle")
+        target = 17.0 if hour >= 22 or hour < 6 else 19.0
+        if on != (t < target - 0.3 or (on and t < target + 0.3)):
+            on = not on
+            event(conn, at, hvac="heating" if on else "idle", temp_c=round(t, 2))
+        t += (-loss * (t - out) + heat * on + sun * sunshine / 1000 + other) / 60
+        at += timedelta(minutes=1)
+    conn.commit()
+
+
+def test_house_model_is_fitted_to_the_readings(conn):
+    fake_house(conn, sun=0.5)
+    m = house.fit(conn, "up", local(13, 0), ZONE)
+    assert m.loss_per_h == pytest.approx(0.03, rel=0.1)
+    assert m.heat_c_per_h == pytest.approx(1.5, rel=0.1)
+    assert m.other_c_per_h == pytest.approx(0.1, abs=0.05)
+    assert m.sun_c_per_kwh == pytest.approx(0.5, rel=0.2)
+    assert m.heat_runs >= 10 and m.cool_c_per_h is None and m.cool_runs == 0
+    assert m.fit_hours >= 90 and m.fit_rmse_c < 0.2
+    assert m.outdoor_c_range == pytest.approx((0.0, 10.0), abs=0.1)
+
+
+def test_house_model_skips_missing_weather_and_ignores_later_data(conn):
+    fake_house(conn, days=5)
+    conn.execute("DELETE FROM weather_observation WHERE observed_at BETWEEN ? AND ?",
+                 (iso(local(10, 6)), iso(local(10, 18))))  # fmt: skip
+    m = house.fit(conn, "up", local(13, 0), ZONE)
+    assert m.fit_hours <= 4 * 24 - 12 + 1
+    assert m.heat_c_per_h == pytest.approx(1.5, rel=0.1)
+    assert m.sun_c_per_kwh == pytest.approx(0, abs=0.05)  # sunny, but this house ignores it
+    # Nothing after `now` is used.
+    conn.execute("DELETE FROM thermostat_event WHERE at > ?", (iso(local(13, 0)),))
+    assert house.fit(conn, "up", local(13, 0), ZONE) == m
 
 
 def test_house_model_needs_enough_data(conn):

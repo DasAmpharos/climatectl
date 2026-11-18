@@ -23,6 +23,7 @@ RECENT_DAYS = 7
 FEEDBACK_DAYS, FEEDBACK_ROWS, FEEDBACK_NOTE_CHARS = 28, 40, 400
 NOTES_CHARS = 4000
 PLANNABLE_MODES = (HEAT, COOL, HEAT_COOL)
+WRITE_MATCH = timedelta(minutes=15)  # how soon after the applier writes its change shows up
 
 
 @dataclass(frozen=True)
@@ -101,7 +102,7 @@ def _state(conn, level: Level, device: str | None, now: datetime, zone: ZoneInfo
         "SELECT temp_c FROM indoor_reading WHERE device_id = ? ORDER BY at DESC LIMIT 1",
         (device,),
     ).fetchone()
-    changed = _last_setpoint_change(conn, device, now - config.limits.manual_pause)
+    changed = _last_setpoint_change(conn, device, now - config.limits.manual_pause, level.key)
     skip = None
     if now - parse_utc(taken_at) > FRESH:
         skip = "no recent snapshot"
@@ -125,20 +126,48 @@ def _state(conn, level: Level, device: str | None, now: datetime, zone: ZoneInfo
     return LevelState(level, device, mode, heat, cool, skip), current
 
 
-def _last_setpoint_change(conn, device: str, since: datetime) -> datetime | None:
-    """When the setpoints last changed after `since`, or None. The planner doesn't write yet,
-    so every change came from a person (at the thermostat or in its app)."""
+def _last_setpoint_change(
+    conn, device: str, since: datetime, level: str | None = None
+) -> datetime | None:
+    """When a person last changed the setpoints after `since`, or None. A change to what the
+    applier wrote for `level` (apply_step) within WRITE_MATCH of writing it was the applier's."""
     rows = conn.execute(
         "SELECT at, heat_c, cool_c FROM setpoint WHERE device_id = ? AND at >= ? ORDER BY at",
         (device, (since - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")),
     ).fetchall()
+    written = _written(conn, level, since) if level else []
     last, changed = None, None
     for at, heat, cool in rows:
         value = (heat and round(heat, 1), cool and round(cool, 1))
-        if last is not None and value != last and parse_utc(at) >= since:
-            changed = parse_utc(at)
+        when = parse_utc(at)
+        if last is not None and value != last and when >= since:
+            ours = any(
+                abs(when - w_at) <= WRITE_MATCH
+                and (w_heat is None or heat is None or abs(w_heat - heat) <= 0.35)
+                and (w_cool is None or cool is None or abs(w_cool - cool) <= 0.35)
+                for w_at, w_heat, w_cool in written
+            )
+            if not ours:
+                changed = when
         last = value
     return changed
+
+
+def _written(
+    conn, level: str, since: datetime
+) -> list[tuple[datetime, float | None, float | None]]:
+    """The applier's writes for `level` since a little before `since`."""
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'apply_step'"
+    ).fetchone()
+    if not exists:
+        return []
+    rows = conn.execute(
+        "SELECT done_at, heat_c, cool_c FROM apply_step WHERE level = ? AND outcome = 'applied'"
+        " AND done_at >= ?",
+        (level, (since - WRITE_MATCH).strftime("%Y-%m-%dT%H:%M:%SZ")),
+    ).fetchall()
+    return [(parse_utc(at), heat, cool) for at, heat, cool in rows]
 
 
 def _t(celsius: float | None, unit: str) -> float | None:
@@ -161,15 +190,16 @@ def _band(band, unit: str) -> dict[str, Any]:
 def _model(m: house.Model, unit: str) -> dict[str, Any]:
     return {
         "heat_loss_per_hour_per_degree_of_difference": m.loss_per_h and round(m.loss_per_h, 4),
-        "heat_loss_nights_fitted": m.loss_nights,
-        "outdoor_range_fitted": m.outdoor_c_range
-        and [_t(m.outdoor_c_range[0], unit), _t(m.outdoor_c_range[1], unit)],
         "furnace_degrees_per_hour": _d(m.heat_c_per_h, unit, 1),
         "furnace_runs_measured": m.heat_runs,
         "ac_degrees_per_hour": _d(m.cool_c_per_h, unit, 1),
         "ac_runs_measured": m.cool_runs,
-        "sunny_day_rise_per_kwh_m2": _d(m.sun_c_per_kwh, unit),
-        "sunny_days_measured": m.sun_days,
+        "sun_degrees_per_hour_per_kw_m2": _d(m.sun_c_per_kwh, unit),
+        "other_gains_degrees_per_hour": _d(m.other_c_per_h, unit),
+        "hours_fitted": round(m.fit_hours),
+        "typical_miss": _d(m.fit_rmse_c, unit),
+        "outdoor_range_fitted": m.outdoor_c_range
+        and [_t(m.outdoor_c_range[0], unit), _t(m.outdoor_c_range[1], unit)],
     }
 
 
