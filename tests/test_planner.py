@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -582,3 +583,40 @@ def test_a_failed_call_is_stored_with_its_error(house_dir, monkeypatch, conn):
     with pytest.raises(SystemExit, match="declined"):
         cli.main([])
     assert conn.execute("SELECT error FROM plan_run").fetchone()[0].startswith("Claude declined")
+
+
+def test_several_models_plan_from_the_same_input(house_dir, capsys, monkeypatch, conn):
+    with (house_dir / ".env").open("a") as env:
+        env.write("ANTHROPIC_API_KEY=sk-test-not-real\n")
+
+    class ByModel(FakeMessages):
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            if kwargs["model"] == "claude-sonnet-5-5":
+                return response(stop="refusal", model=kwargs["model"])
+            return response(model=kwargs["model"])
+
+    fake = ByModel()
+    monkeypatch.setattr(anthropic, "Anthropic", lambda api_key: fake_client(fake))
+    models = ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"]
+    with pytest.raises(SystemExit, match="claude-sonnet-5-5: Claude declined"):
+        cli.main([arg for m in models for arg in ("--model", m)])
+    out = capsys.readouterr().out
+    assert [c["model"] for c in fake.calls] == models
+    assert len({c["messages"][0]["content"] for c in fake.calls}) == 1  # the same input
+    table = out.split("=" * 72)[0]
+    for name in ("claude-haiku-5-5", "claude-opus-5-5", "hold the setpoints", "band edges"):
+        assert name in table
+    assert re.search(r"claude-sonnet-5-5 +failed: Claude declined", table)
+    stored = conn.execute("SELECT model, error IS NULL FROM plan_run ORDER BY id").fetchall()
+    assert stored == [(models[0], 1), (models[1], 0), (models[2], 1)]
+
+
+def test_json_lists_every_model(house_dir, capsys, monkeypatch):
+    with (house_dir / ".env").open("a") as env:
+        env.write("ANTHROPIC_API_KEY=sk-test-not-real\n")
+    fake = FakeMessages(response())
+    monkeypatch.setattr(anthropic, "Anthropic", lambda api_key: fake_client(fake))
+    cli.main(["--json", "--model", "claude-haiku-5-5", "--model", "claude-opus-5-5"])
+    data = json.loads(capsys.readouterr().out)
+    assert [d["run"] for d in data] == [1, 2] and all("plan" in d for d in data)
