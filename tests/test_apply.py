@@ -112,6 +112,27 @@ def test_a_planned_day_follows_the_plan_and_a_hold_day_holds(conn):
     assert [s[2] for s in steps(conn)] == ["applied"] * 3 + ["kept"]
 
 
+def test_changes_in_the_last_half_hour_of_the_day_are_left_out(conn):
+    house = House()
+    a = applier(conn, house)
+    plan(conn, at(11, 21), [(at(11, 21), 62, 68), (at(12, 7), 64, 72), (at(12, 20, 45), 64, 68)])
+    a.tick(at(11, 21, 1))
+    a.tick(at(12, 7, 1))
+    assert a.tick(at(12, 20, 46)) == [] and a.tick(at(12, 20, 59)) == []
+    assert house.writes == [(62, 68), (64, 72)]
+    assert a.tick(at(12, 21)) == ["Upstairs: already at 64/72"]  # the hold day's start
+
+
+def test_a_plan_with_only_late_changes_keeps_the_setpoints(conn):
+    house = House()
+    plan(conn, at(11, 21), [(at(12, 20, 40), 64, 68)])
+    assert applier(conn, house).tick(at(11, 21, 1)) == [
+        "Upstairs: the plan keeps the setpoints (its changes are all after Thu 20:30)"
+    ]
+    assert applier(conn, house).tick(at(12, 20, 41)) == [] and house.writes == []
+    assert [s[2] for s in steps(conn)] == ["kept"]
+
+
 def test_after_a_restart_only_the_step_due_now_is_written(conn):
     house = House()
     plan(conn, at(11, 21), [(at(11, 21), 62, 68), (at(12, 6, 30), 64, 68), (at(12, 7, 30), 64, 72)])

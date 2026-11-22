@@ -451,24 +451,21 @@ def render(cards: list[LevelCard], cfg: Config, zone: ZoneInfo) -> str:
             lines.append(f"  the trial can detect a saving of about {card.detectable_min:.0f}"
                          f" min a day or more{share}")  # fmt: skip
         elif e is not None:
-            if e.interval_min is None:
-                ival = " (too few days for an interval)"
-            else:
-                ival = f" ± {e.interval_min:.0f}"
+            ival = "" if e.interval_min is None else f" ± {e.interval_min:.0f}"
             pct = ""
             if e.saved_pct is not None:
                 pi = f" ± {e.interval_pct:.0f}%" if e.interval_pct is not None else ""
                 pct = f" ({e.saved_pct:.0f}%{pi})"
-            verdict = ""
-            if e.interval_min is not None:
-                if e.saved_min - e.interval_min > 0:
-                    verdict = ": a real saving"
-                elif e.saved_min + e.interval_min < 0:
-                    verdict = ": the plans used more"
-                else:
-                    verdict = ": not distinguishable from no change yet"
+            if e.interval_min is None:
+                verdict = ", too few days for an interval"
+            elif e.saved_min - e.interval_min > 0:
+                verdict = ", 95%: a real saving"
+            elif e.saved_min + e.interval_min < 0:
+                verdict = ", 95%: the plans used more"
+            else:
+                verdict = ", 95%: not distinguishable from no change yet"
             lines.append(f"  planned vs hold ({e.planned} vs {e.hold} days): saves "
-                         f"{e.saved_min:.0f} min a day{ival}{pct}, 95%{verdict}")  # fmt: skip
+                         f"{e.saved_min:.0f} min a day{ival}{pct}{verdict}")  # fmt: skip
         planned = [d for d in card.days if d.used and d.arm == "planned"]
         if planned:
             worst = min((d.low_c for d in planned if d.low_c is not None), default=None)

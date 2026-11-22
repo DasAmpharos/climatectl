@@ -337,6 +337,21 @@ def test_current_setpoints_that_break_a_coming_band_get_a_change():
     assert changes(plan) == [("Fri 21:30", 64.0, 69.0)]
 
 
+def test_the_band_that_starts_as_the_horizon_ends_is_left_to_the_next_plan():
+    # Planned at 22:00:02 (the run starts a moment after the hour): the horizon ends at
+    # 22:00:02 tomorrow, two seconds into the next sleep band, which the next plan covers.
+    c = cfg()
+    plan = guardrails.apply(
+        {"levels": [{"level": "Upstairs", "rationale": "",
+                     "changes": [{"at": "2026-11-13T22:00", "heat": 62, "cool": 69},
+                                 {"at": "2026-11-14T07:00", "heat": 64, "cool": 72}]}],
+         "notes_update": ""},
+        ctx_for(c, now=local(13, 22) + timedelta(seconds=2)), c,
+    )  # fmt: skip
+    assert changes(plan) == [("Fri 22:00", 62.0, 69.0), ("Sat 07:00", 64.0, 72.0)]
+    assert plan.levels[0].corrections == []
+
+
 def test_max_step_min_gap_floor_and_rounding():
     wide = {"Upstairs": {"bands": [{"name": "day", "heat": 60, "cool": 80}]}}
     c = cfg(levels=wide, limits={"max_step": 4, "min_gap": 3, "ceiling": 80})

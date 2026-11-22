@@ -13,7 +13,9 @@ fixing, the fix becomes the first change. In order, for each change:
    current setpoints aren't a change, so they never make the first one too soon.
 2. max_step: each setpoint moves at most this far from the one before it.
 3. Comfort: heat is at least, and cool at most, every band in force during the change's span.
-   Comfort wins over max_step.
+   Comfort wins over max_step. The last change's span ends at the last quarter hour of the
+   horizon: a plan made a few seconds after 21:00 ends a few seconds after 21:00 tomorrow, and
+   the band that starts then belongs to the next plan, not this one.
 4. Hard floor and ceiling.
 5. min_gap: cool at least this far above heat (cool moves up, or heat down at the ceiling).
 6. Rounded to the thermostat's resolution, heat up and cool down, so rounding never leaves a
@@ -130,8 +132,9 @@ def _level(out: LevelPlan, changes: list[Any], state, ctx: Context, config: Conf
     # Only the setpoints the mode uses count, so a heat-only level never compares cool.
     previous = (None if state.mode == COOL else state.heat_c,
                 None if state.mode == HEAT else state.cool_c)  # fmt: skip
+    last_quarter = _floor_quarter(end)
     for i, (at, heat_u, cool_u) in enumerate(kept):
-        span_end = kept[i + 1][0] if i + 1 < len(kept) else end
+        span_end = kept[i + 1][0] if i + 1 < len(kept) else last_quarter
         when = _local(at, ctx)
         heat = None if state.mode == COOL else _c(heat_u, unit)
         cool = None if state.mode == HEAT else _c(cool_u, unit)
@@ -191,6 +194,11 @@ def _parse_local(text: Any, ctx: Context) -> datetime | None:
     seconds = (at - at.replace(minute=0, second=0, microsecond=0)).total_seconds()
     base = at.replace(minute=0, second=0, microsecond=0)
     return base + QUARTER * round(seconds / QUARTER.total_seconds())
+
+
+def _floor_quarter(at: datetime) -> datetime:
+    base = at.replace(minute=0, second=0, microsecond=0)
+    return base + QUARTER * ((at - base) // QUARTER)
 
 
 def _suits(change, bands, mode: str | None, unit: str) -> bool:

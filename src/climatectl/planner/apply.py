@@ -13,6 +13,10 @@ starts ("stood down"). At a new trial day it takes over again, but not before
 limits.manual_pause has passed since that change. Offline, Eco and off are skipped for the
 step and tried again at the next one.
 
+A plan's changes due in the last LATE_CUTOFF of its trial day are left out: the next day's
+first step replaces them within minutes, and a setpoint write can start a full furnace or AC
+cycle that only muddles the boundary between the arms.
+
 Every step is recorded in apply_step, once: what was set, or why not. That makes it safe to
 restart at any time: only the latest step that's due and not yet recorded is written, so steps
 missed while it was down are superseded by the one that's due now."""
@@ -58,6 +62,7 @@ PLAN_EARLY = timedelta(minutes=15)
 PLAN_WAIT = timedelta(minutes=30)
 MATCH_C = 0.35  # a live setpoint this close to the one written counts as unchanged (0.6F)
 RETRY = timedelta(minutes=5)  # after a provider error, or while a person's change is fresh
+LATE_CUTOFF = timedelta(minutes=30)  # plan changes this close to the day's end aren't written
 
 
 def prepare(conn: sqlite3.Connection) -> None:
@@ -144,14 +149,19 @@ class Applier:
                 self._record(step, SKIPPED, now, f"the plan skipped it: {reason}")
                 lines.append(f"{key}: the plan skipped it ({reason})")
             return None
-        changes = sorted(plan.get("changes") or [], key=lambda c: c["at"])
+        cutoff = self._day_start(day + timedelta(days=1)) - LATE_CUTOFF
+        planned = sorted(plan.get("changes") or [], key=lambda c: c["at"])
+        changes = [c for c in planned if parse_utc(c["at"]) < cutoff]
         due = [c for c in changes if parse_utc(c["at"]) <= now]
         if not changes:
             step = Step(key, day, arm, start, None, None, run_id)
             if not self._recorded(step):
-                self._record(step, KEPT, now, "the plan keeps the setpoints")
+                note = "the plan keeps the setpoints"
+                if planned:
+                    note += f" (its changes are all after {self._local(cutoff)})"
+                self._record(step, KEPT, now, note)
                 self._mark_applied(run_id)
-                lines.append(f"{key}: the plan keeps the setpoints")
+                lines.append(f"{key}: {note}")
             return None
         if not due:
             return None

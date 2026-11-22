@@ -128,6 +128,16 @@ def test_the_fit_finds_the_weather_response_and_the_saving(conn):
     assert "planned vs hold (5 vs 5 days)" in text and ": a real saving" in text
 
 
+def test_too_few_days_for_an_interval_says_so_without_a_confidence_level(conn):
+    cfg = trial_cfg()
+    house(conn, cfg, all_days())
+    (card,) = scorecard.build(conn, cfg, ZONE, datetime(2026, 11, 22, 12, tzinfo=UTC))
+    card.effect = scorecard.Effect(1, 1, 31.0, None, 32.0, None)
+    text = scorecard.render([card], cfg, ZONE)
+    assert "saves 31 min a day (32%), too few days for an interval\n" in text
+    assert "95%" not in text
+
+
 def test_before_the_trial_it_says_what_the_trial_could_detect(conn):
     cfg = trial_cfg()
     house(conn, cfg, all_days(count=10))
