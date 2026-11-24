@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # renovate/** too: Renovate merges an update into main only after CI passes on its branch.
+    branches: [main, "renovate/**"]
   pull_request:
 
 permissions:
