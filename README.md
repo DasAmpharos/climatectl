@@ -297,6 +297,24 @@ a real `.env`. To run `deploy/compose.yaml` with images you built, tag them
 `CLIMATECTL_VERSION=dev`. See [CONTRIBUTING.md](CONTRIBUTING.md) for pull requests and new
 providers.
 
+## Dependency updates
+
+Renovate keeps `uv.lock`, the Docker base images and the GitHub Actions pins current, with **no pull requests**: it runs daily from
+`.github/workflows/renovate.yml`, pushes each update (once the release is a week old) to a `renovate/...`
+branch, and merges it into `main` itself after CI passes there. An update that fails CI stays on its branch and
+shows on the Dependency Dashboard issue. Settings are in `renovate.json5`.
+
+A new Python in the images (say 3.14 to 3.15) opens a pull request instead. Merged updates ship with the
+next release tag.
+
+One-time setup: the workflow needs the repository secret `RENOVATE_TOKEN`, a fine-grained personal access
+token (github.com/settings/personal-access-tokens) with access to this repository and **Contents**,
+**Pull requests**, **Issues**, **Commit statuses** and **Workflows** set to *Read and write*. One token
+can serve every repository that runs Renovate (homelab, gmail-cleanup and the others): give it access to
+this one, then `gh secret set RENOVATE_TOKEN --repo DasAmpharos/climatectl` and run the workflow once from the
+Actions tab. The token expires (at most a year): when the workflow starts failing, make a new one and set it
+again.
+
 ## Releasing
 
 The version comes from the git tag, so there is no version number to edit. Once the changes
