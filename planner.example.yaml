@@ -23,6 +23,11 @@ levels:
         to: "07:00"
         heat: 62
         cool: 69
+        cool_by_dew_point:     # optional: humid air feels warmer. The level's dew point at
+          - below: 50          # planning time picks the cool limit for the plan; the first
+            cool: 70           # step that applies wins, else `cool` above
+          - at_least: 55
+            cool: 68
   Downstairs:
     about: Thermostat in the living room, next to the kitchen.
     bands:

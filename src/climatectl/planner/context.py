@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from ..store import parse_utc
 from ..thermostat import COOL, HEAT, HEAT_COOL, OFF
 from . import house
-from .config import Config, Level, delta_from_c, from_c
+from .config import Config, Level, delta_from_c, dew_point_c, from_c
 
 FRESH = timedelta(minutes=30)  # a level with no snapshot this recent isn't planned
 HORIZON = timedelta(hours=24)
@@ -30,7 +30,7 @@ WRITE_MATCH = timedelta(minutes=15)  # how soon after the applier writes its cha
 class LevelState:
     """What the guardrails need about one level at planning time."""
 
-    level: Level
+    level: Level  # with each band's cool limit for the level's dew point now
     device_id: str | None
     mode: str | None
     heat_c: float | None
@@ -62,7 +62,7 @@ def build(conn: sqlite3.Connection, config: Config, now: datetime, zone: ZoneInf
                 "planned": state.skip is None,
                 **({"not_planned_because": state.skip} if state.skip else {}),
                 "now": current,
-                "comfort_bands": [_band(b, unit) for b in level.bands],
+                "comfort_bands": [_band(b, unit) for b in state.level.bands],
                 "house_model": _model(model, unit) if model else None,
                 "recent_days": _recent(conn, device, now, zone) if device else [],
             }
@@ -98,6 +98,8 @@ def _state(conn, level: Level, device: str | None, now: datetime, zone: ZoneInfo
     if row is None:
         return LevelState(level, device, None, None, None, "no snapshot yet"), None
     taken_at, online, ambient, humidity, mode, hvac, eco, heat, cool = row
+    dew_point = dew_point_c(ambient, humidity) if ambient is not None and humidity else None
+    level = level.for_dew_point(dew_point)
     reading = conn.execute(
         "SELECT temp_c FROM indoor_reading WHERE device_id = ? ORDER BY at DESC LIMIT 1",
         (device,),
@@ -118,6 +120,7 @@ def _state(conn, level: Level, device: str | None, now: datetime, zone: ZoneInfo
     current = {
         "temp": _t(reading[0] if reading else ambient, unit),
         "humidity_pct": humidity,
+        "dew_point": _t(dew_point, unit),
         "mode": mode,
         "hvac": hvac,
         "heat_setpoint": _t(heat, unit) if mode in (HEAT, HEAT_COOL) else None,
@@ -184,7 +187,29 @@ def _band(band, unit: str) -> dict[str, Any]:
         out["from"], out["to"] = band.start.strftime("%H:%M"), band.end.strftime("%H:%M")
     else:
         out["when"] = "whenever no other band applies"
-    return {**out, "heat_at_least": _t(band.heat_c, unit), "cool_at_most": _t(band.cool_c, unit)}
+    out = {**out, "heat_at_least": _t(band.heat_c, unit), "cool_at_most": _t(band.cool_c, unit)}
+    if band.cool_by_dew_point:
+        out["cool_at_most_rule"] = _dew_point_rule(band, unit)
+    return out
+
+
+def _dew_point_rule(band, unit: str) -> str:
+    """The band's cool limit by dew point, in words, and which one this plan uses."""
+    base = band.cool_c if band.base_cool_c is None else band.base_cool_c
+    parts = [f"{_t(base, unit):g} normally"]
+    for step in band.cool_by_dew_point:
+        if step.below_c is not None:
+            parts.append(f"{_t(step.cool_c, unit):g} while the dew point here is below "
+                         f"{_t(step.below_c, unit):g}")  # fmt: skip
+        else:
+            parts.append(f"{_t(step.cool_c, unit):g} while it is {_t(step.at_least_c, unit):g}"
+                         " or more")  # fmt: skip
+    now = ("unknown" if band.dew_point_c is None
+           else f"{_t(band.dew_point_c, unit):g} now")  # fmt: skip
+    return (
+        f"{'; '.join(parts)} (humid air feels warmer). The dew point is {now}, so"
+        f" cool_at_most is {_t(band.cool_c, unit):g} for this plan."
+    )
 
 
 def _model(m: house.Model, unit: str) -> dict[str, Any]:

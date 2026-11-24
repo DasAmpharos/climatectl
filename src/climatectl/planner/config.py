@@ -4,7 +4,8 @@ Celsius here. See planner.example.yaml for every field."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, replace
 from datetime import date, time, timedelta
 from pathlib import Path
 from typing import Any
@@ -46,21 +47,56 @@ def delta_from_c(celsius: float, unit: str) -> float:
     return celsius if unit == "C" else celsius * 9 / 5
 
 
+def dew_point_c(temp_c: float, humidity_pct: float) -> float:
+    """The dew point (Magnus formula, as the dew_point view): unlike relative humidity, it
+    measures the water in the air the same way at any temperature."""
+    g = math.log(humidity_pct / 100) + 17.62 * temp_c / (243.12 + temp_c)
+    return 243.12 * g / (17.62 - g)
+
+
 def step(unit: str) -> float:
     """The setpoint resolution in `unit`: thermostats set whole °F or half °C."""
     return 1.0 if unit == "F" else 0.5
 
 
 @dataclass(frozen=True)
+class DewPointStep:
+    """A band's cool limit while the level's dew point is below `below_c`, or at least
+    `at_least_c` (exactly one is set): humid air feels warmer, dry air cooler."""
+
+    cool_c: float
+    below_c: float | None = None
+    at_least_c: float | None = None
+
+    def applies(self, dew_point: float) -> bool:
+        if self.below_c is not None:
+            return dew_point < self.below_c
+        return dew_point >= self.at_least_c
+
+
+@dataclass(frozen=True)
 class Band:
     """The temperatures a level must stay between: the furnace keeps it at or above heat_c,
-    the AC at or below cool_c. A band with no start and end is the level's default."""
+    the AC at or below cool_c. A band with no start and end is the level's default.
+
+    With cool_by_dew_point, cool_c is the limit when no step applies, and for_dew_point gives
+    the band with the limit for a dew point: the first step that applies, in order."""
 
     name: str
     heat_c: float
     cool_c: float
     start: time | None = None  # local time
     end: time | None = None
+    cool_by_dew_point: tuple[DewPointStep, ...] = ()
+    base_cool_c: float | None = None  # set by for_dew_point: cool_c when no step applies
+    dew_point_c: float | None = None  # set by for_dew_point: the dew point it used
+
+    def for_dew_point(self, dew_point: float | None) -> Band:
+        if not self.cool_by_dew_point or dew_point is None:
+            return self
+        base = self.cool_c if self.base_cool_c is None else self.base_cool_c
+        cool = next((s.cool_c for s in self.cool_by_dew_point if s.applies(dew_point)), base)
+        return replace(self, cool_c=cool, base_cool_c=base, dew_point_c=dew_point)
 
     def covers(self, at: time) -> bool:
         if self.start is None or self.end is None:
@@ -76,12 +112,17 @@ class Level:
     about: str
     bands: tuple[Band, ...]
 
-    def band_at(self, at: time) -> Band:
-        """The timed band covering `at`, else the default band."""
+    def band_at(self, at: time, dew_point: float | None = None) -> Band:
+        """The timed band covering `at`, else the default band; with `dew_point` (°C), with
+        its cool limit for that dew point."""
         for band in self.bands:
             if band.start is not None and band.covers(at):
-                return band
-        return next(b for b in self.bands if b.start is None)
+                return band.for_dew_point(dew_point)
+        return next(b for b in self.bands if b.start is None).for_dew_point(dew_point)
+
+    def for_dew_point(self, dew_point: float | None) -> Level:
+        """This level with every band's cool limit for `dew_point` (°C)."""
+        return replace(self, bands=tuple(b.for_dew_point(dew_point) for b in self.bands))
 
 
 @dataclass(frozen=True)
@@ -282,7 +323,36 @@ def _band(level: str, i: int, raw: dict[str, Any], unit: str, limits: Limits) ->
         cool_c=cool,
         start=None if start is None else _time(start, f"{where}.from"),
         end=None if end is None else _time(end, f"{where}.to"),
+        cool_by_dew_point=_dew_point_steps(
+            raw.get("cool_by_dew_point"), where, heat, unit, limits
+        ),  # fmt: skip
     )
+
+
+def _dew_point_steps(raw: Any, where: str, heat_c: float, unit: str, limits: Limits):
+    if raw is None:
+        return ()
+    where = f"{where}.cool_by_dew_point"
+    if not isinstance(raw, list) or not raw:
+        raise ConfigError(f"{where} must be a list of steps like {{below: 50, cool: 69}}.")
+    steps = []
+    for i, step_raw in enumerate(raw):
+        at = f"{where}[{i}]"
+        if not isinstance(step_raw, dict) or ("below" in step_raw) == ("at_least" in step_raw):
+            raise ConfigError(f"{at} needs cool and exactly one of below or at_least.")
+        cool = to_c(_number(step_raw.get("cool"), f"{at}.cool"), unit)
+        if cool - heat_c < limits.min_gap_c - 1e-9 or cool > limits.ceiling_c:
+            raise ConfigError(f"{at}: cool must keep limits.min_gap and not pass the ceiling.")
+        if "below" in step_raw:
+            step_ = DewPointStep(
+                cool, below_c=to_c(_number(step_raw["below"], f"{at}.below"), unit)
+            )
+        else:
+            step_ = DewPointStep(
+                cool, at_least_c=to_c(_number(step_raw["at_least"], f"{at}.at_least"), unit)
+            )
+        steps.append(step_)
+    return tuple(steps)
 
 
 def _number(value: Any, where: str) -> float:

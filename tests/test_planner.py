@@ -139,11 +139,73 @@ def test_unquoted_yaml_times_are_read_as_times(tmp_path):
         ({"Up": {"bands": [{"heat": 64, "cool": 72, "from": "22:00"}]}}, "both from and to"),
         ({"Up": {"bands": []}}, "at least one band"),
         ({}, "at least one thermostat"),
+        (
+            {"Up": {"bands": [{"heat": 64, "cool": 72, "cool_by_dew_point": [{"cool": 69}]}]}},
+            "exactly one of below or at_least",
+        ),
+        (
+            {
+                "Up": {
+                    "bands": [
+                        {"heat": 64, "cool": 72, "cool_by_dew_point": [{"below": 50, "cool": 65}]}
+                    ]
+                }
+            },
+            "min_gap",
+        ),
     ],
 )
 def test_bad_configs_are_refused(levels, message):
     with pytest.raises(ConfigError, match=message):
         config.parse({"levels": levels}, Path("."))
+
+
+HUMID_BANDS = {"Upstairs": {"bands": [
+    {"name": "day", "heat": 64, "cool": 72},
+    {"name": "sleep", "from": "22:00", "to": "07:00", "heat": 62, "cool": 68,
+     "cool_by_dew_point": [{"below": 50, "cool": 69}, {"at_least": 55, "cool": 67}]},
+]}}  # fmt: skip
+
+
+def dp_c(f):
+    return config.to_c(f, "F")
+
+
+def test_a_bands_cool_limit_follows_the_dew_point():
+    sleep = cfg(levels=HUMID_BANDS).levels[0].bands[1]
+    cool = {dp: round(config.from_c(sleep.for_dew_point(dp_c(dp)).cool_c, "F"), 1)
+            for dp in (45, 49.9, 50, 54.9, 55, 60)}  # fmt: skip
+    assert cool == {45: 69, 49.9: 69, 50: 68, 54.9: 68, 55: 67, 60: 67}
+    assert sleep.for_dew_point(None) is sleep
+    # Resolving again starts from the band's own limit, not the last resolution.
+    again = sleep.for_dew_point(dp_c(45)).for_dew_point(dp_c(52))
+    assert round(config.from_c(again.cool_c, "F")) == 68
+    day = cfg(levels=HUMID_BANDS).levels[0].band_at(time(12), dp_c(45))
+    assert day.name == "day" and round(config.from_c(day.cool_c, "F")) == 72
+
+
+@pytest.mark.parametrize(("humidity", "limit"), [(45, 69.0), (65, 67.0)])
+def test_the_plan_uses_the_cool_limit_for_the_dew_point_now(conn, humidity, limit):
+    # 68F at 45% is a dew point of about 46F; at 65%, about 56F.
+    c = cfg(levels=HUMID_BANDS)
+    snapshot(conn, NOW - timedelta(minutes=10), config.to_c(68, "F"), humidity_pct=humidity)
+    ctx = context.build(conn, c, NOW, ZONE)
+    (up,) = ctx.payload["levels"]
+    sleep = up["comfort_bands"][1]
+    assert sleep["cool_at_most"] == limit
+    assert sleep["cool_at_most_rule"].startswith(
+        "68 normally; 69 while the dew point here is below 50; 67 while it is 55 or more"
+    )
+    assert f"so cool_at_most is {limit:g} for this plan" in sleep["cool_at_most_rule"]
+    assert 45 < up["now"]["dew_point"] < 57
+    plan = guardrails.apply(
+        {"levels": [{"level": "Upstairs", "rationale": "",
+                     "changes": [{"at": "2026-11-13T22:00", "heat": 62, "cool": 69},
+                                 {"at": "2026-11-14T07:00", "heat": 64, "cool": 72}]}],
+         "notes_update": ""},
+        ctx, c,
+    )  # fmt: skip
+    assert changes(plan)[0] == ("Fri 22:00", 62.0, limit)
 
 
 def test_celsius_config_gets_the_same_default_limits():

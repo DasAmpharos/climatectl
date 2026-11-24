@@ -179,6 +179,45 @@ def test_outside_minutes_count_only_past_the_tolerance(conn):
     assert day.outside_min == 120 and round(config.from_c(day.low_c, "F"), 1) == 61.5
 
 
+@pytest.mark.parametrize(("humidity", "outside"), [(45, 0), (60, 600)])
+def test_the_comfort_check_uses_the_cool_limit_for_the_dew_point(conn, humidity, outside):
+    # 69.5F all night in the sleep band (68, or 69 while the dew point is under 50F). At 45%
+    # (a dew point of about 48F) that's inside 69 + the 1F tolerance; at 60% (about 55F) it's
+    # past 68 + 1 from 21:00 to 07:00.
+    raw = {
+        "unit": "F",
+        "levels": {
+            "Upstairs": {
+                "bands": [
+                    {"name": "day", "heat": 64, "cool": 72},
+                    {
+                        "name": "sleep",
+                        "from": "21:00",
+                        "to": "07:00",
+                        "heat": 62,
+                        "cool": 68,
+                        "cool_by_dew_point": [{"below": 50, "cool": 69}],
+                    },
+                ]
+            }
+        },
+        "trial": {
+            "start": "2026-11-11",
+            "end": "2026-11-20",
+            "hold": {"heat": 64, "cool": 72},
+            "levels": {"Upstairs": "2026-11-11"},
+            "baseline_from": "2026-11-01",
+        },
+    }
+    cfg = config.parse(raw, Path("."))  # fmt: skip
+    start = datetime(2026, 11, 1, 21, tzinfo=ZONE)
+    snapshot(conn, start, config.to_c(69.5, "F"), humidity_pct=humidity)
+    snapshot(conn, start + timedelta(hours=10), config.to_c(69.5, "F"), humidity_pct=humidity)
+    conn.commit()
+    (card,) = scorecard.build(conn, cfg, ZONE, datetime(2026, 11, 3, 12, tzinfo=UTC))
+    assert card.days[0].outside_min == outside
+
+
 def test_the_simulator_is_checked_against_hold_days(conn):
     cfg = trial_cfg()
     house(conn, cfg, all_days(count=10))

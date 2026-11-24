@@ -151,7 +151,8 @@ in the `plan_run` table, and nothing is written to a thermostat.
 
 Copy [`planner.example.yaml`](planner.example.yaml) to `planner.yaml` next to `.env` and
 describe the house, each thermostat's comfort bands (a default band, plus timed ones such as
-sleep) and the limits. Set `ANTHROPIC_API_KEY`, or sign in once with `ant auth login`. Then:
+sleep, whose cool limit can follow the room's dew point) and the limits. Set
+`ANTHROPIC_API_KEY`, or sign in once with `ant auth login`. Then:
 
 ```bash
 uv run climatectl plan --input-only   # print exactly what would be sent; free

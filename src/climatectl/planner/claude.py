@@ -46,6 +46,8 @@ How the thermostats work:
   temperature for its hours. Setpoints at the band's edges are the cheapest way to stay inside
   it. A setpoint inside the band costs energy, and is only worth it to pre-heat or pre-cool ahead
   of a stricter band the level couldn't otherwise reach in time.
+- A band with cool_at_most_rule sets its cool limit by the room's dew point; its cool_at_most is
+  already the limit for this plan.
 - Each thermostat reads one room, so "inside the band" means at the thermostat.
 
 Each level's house_model is fitted to the logged readings (null where there isn't enough yet).

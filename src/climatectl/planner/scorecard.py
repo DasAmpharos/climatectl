@@ -32,7 +32,7 @@ from zoneinfo import ZoneInfo
 
 from ..store import parse_utc
 from .apply import NOT_APPLIED
-from .config import Config, Trial, from_c
+from .config import Config, Trial, dew_point_c, from_c
 
 SAMPLE = timedelta(minutes=5)
 BASES_C = [b / 2 for b in range(20, 37)]  # degree-day bases tried: 10-18 °C (50-64.4 °F)
@@ -224,6 +224,10 @@ def _day(conn, cfg, trial, level, device, day, start, end, weather, zone) -> Day
                       device, start, end)  # fmt: skip
     setpoints = _steps(conn, "SELECT at, heat_c, cool_c FROM setpoint WHERE device_id = ?"
                        " AND {where}", device, start, end)  # fmt: skip
+    humid = any(b.cool_by_dew_point for b in level.bands)
+    air = _steps(conn, "SELECT at, ambient_c, humidity_pct FROM (SELECT taken_at AS at, device_id,"
+                 " ambient_c, humidity_pct FROM thermostat_snapshot) WHERE device_id = ?"
+                 " AND {where}", device, start, end) if humid else []  # fmt: skip
     minutes = SAMPLE.total_seconds() / 60
     outside = off_hold = 0.0
     low = None
@@ -234,7 +238,9 @@ def _day(conn, cfg, trial, level, device, day, start, end, weather, zone) -> Day
         if temp is not None:
             seen = True
             low = temp if low is None else min(low, temp)
-            band = level.band_at(at.astimezone(zone).time())
+            ambient, humidity = _value_at(air, at, 2) or (None, None)
+            dew_point = dew_point_c(ambient, humidity) if ambient is not None and humidity else None
+            band = level.band_at(at.astimezone(zone).time(), dew_point)
             if temp < band.heat_c - trial.tolerance_c or temp > band.cool_c + trial.tolerance_c:
                 outside += minutes
         sp = _value_at(setpoints, at, 2)
