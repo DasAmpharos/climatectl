@@ -59,6 +59,7 @@ def plan_dict(plan: Plan) -> list[dict[str, Any]]:
             "skipped": lp.skipped,
             "rationale": lp.rationale,
             "changes": [{**asdict(c), "at": _stamp(c.at)} for c in lp.changes],
+            **({"warnings": lp.warnings} if lp.warnings else {}),
         }
         for lp in plan.levels
     ]

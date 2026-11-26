@@ -21,6 +21,11 @@ fixing, the fix becomes the first change. In order, for each change:
 6. Rounded to the thermostat's resolution, heat up and cool down, so rounding never leaves a
    band.
 
+After the fixes, a warning (which changes nothing) for each looser band the plan doesn't use:
+a band that starts within the horizon, lasts at least SETBACK_MIN, and allows a lower heat
+(or higher cool) than the band before it, while the plan's heat stays at the earlier band's
+through all of it. Such a plan holds the stricter setpoint through a setback for nothing.
+
 A level in a mode with only one setpoint plans only that one. A level the context marked as not
 planned (offline, Eco, off, changed by hand) gets no changes."""
 
@@ -38,6 +43,8 @@ from .context import HORIZON, Context
 QUARTER = timedelta(minutes=15)
 EPSILON = 0.01  # °C: thermostats and F/C conversions put an edge like 72F a hair either side
 ROUND_SLACK = 0.05  # of a setpoint step
+SETBACK_MIN = timedelta(hours=2)  # a looser band shorter than this isn't worth a setback
+USED_C = 0.25  # °C (about 0.5F) past the earlier band's edge counts as using the looser one
 
 
 @dataclass(frozen=True)
@@ -54,6 +61,7 @@ class LevelPlan:
     rationale: str
     skipped: str | None = None
     corrections: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)  # about the plan; nothing was changed
 
 
 @dataclass
@@ -180,6 +188,69 @@ def _level(out: LevelPlan, changes: list[Any], state, ctx: Context, config: Conf
         if (heat, cool) != _rounded(previous, unit):
             out.changes.append(Change(at, heat, cool))
         previous = (heat, cool)
+
+    start_setpoints = (None if state.mode == COOL else state.heat_c,
+                       None if state.mode == HEAT else state.cool_c)  # fmt: skip
+    out.warnings.extend(_unused_setbacks(out.changes, start_setpoints, state, ctx, unit, end))
+
+
+def _unused_setbacks(changes, start, state, ctx: Context, unit: str, end: datetime) -> list[str]:
+    """A warning per looser band the plan holds the earlier band's setpoint through."""
+
+    def in_force(at: datetime) -> tuple[float | None, float | None]:
+        heat, cool, at = *start, max(at, ctx.now)
+        for c in changes:
+            if c.at > at:
+                break
+            heat, cool = c.heat_c, c.cool_c
+        return heat, cool
+
+    # From the quarter before now, so a band that starts as the plan is made (21:00) is seen.
+    level, last = state.level, _floor_quarter(end)
+    samples, at = [], _floor_quarter(ctx.now) - QUARTER
+    while at < last:
+        samples.append((at, level.band_at(at.astimezone(ctx.zone).time())))
+        at += QUARTER
+    warnings = []
+    i = 1
+    while i < len(samples):
+        before, band = samples[i - 1][1], samples[i][1]
+        if band.name == before.name:
+            i += 1
+            continue
+        j = i
+        while j < len(samples) and samples[j][1].name == band.name:
+            j += 1
+        span = [samples[k][0] for k in range(i, j)]
+        if span[-1] + QUARTER - span[0] >= SETBACK_MIN:
+            held = [in_force(t) for t in span]
+            when = (f"{band.start:%H:%M}-{band.end:%H:%M}" if band.start is not None
+                    else f"from {_local(span[0], ctx)}")  # fmt: skip
+            sides = []
+            if (
+                band.heat_c < before.heat_c - USED_C
+                and state.mode != COOL
+                and all(h is not None and h > before.heat_c - USED_C for h, _ in held)
+            ):
+                sides.append(
+                    f"heat stays at {_f(min(h for h, _ in held), unit)} though the band"
+                    f" allows {_f(band.heat_c, unit)}"
+                )
+            if (
+                band.cool_c > before.cool_c + USED_C
+                and state.mode != HEAT
+                and all(c is not None and c < before.cool_c + USED_C for _, c in held)
+            ):
+                sides.append(
+                    f"cool stays at {_f(max(c for _, c in held), unit)} though the band"
+                    f" allows {_f(band.cool_c, unit)}"
+                )
+            if sides:
+                warnings.append(
+                    f"no setback in the {band.name} band ({when}): {', and '.join(sides)}"
+                )
+        i = j
+    return warnings
 
 
 def _parse_local(text: Any, ctx: Context) -> datetime | None:

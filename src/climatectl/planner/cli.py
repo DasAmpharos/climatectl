@@ -46,6 +46,7 @@ def render(plan: guardrails.Plan, reply: claude.Reply, ctx: context.Context, uni
         if lp.rationale:
             lines.append(f"  why: {lp.rationale}")
         lines.extend(f"  correction: {text}" for text in lp.corrections)
+        lines.extend(f"  warning: {text}" for text in lp.warnings)
     lines.extend(f"correction: {text}" for text in plan.corrections)
     if plan.notes_update:
         lines.append("suggested notes (not written in a dry run):")

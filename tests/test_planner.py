@@ -414,6 +414,55 @@ def test_the_band_that_starts_as_the_horizon_ends_is_left_to_the_next_plan():
     assert plan.levels[0].corrections == []
 
 
+NIGHT = {"Upstairs": {"bands": [
+    {"name": "day", "heat": 64, "cool": 71},
+    {"name": "night", "from": "22:30", "to": "06:30", "heat": 60, "cool": 76},
+    {"name": "nap", "from": "14:00", "to": "15:00", "heat": 60, "cool": 76},
+]}}  # fmt: skip
+
+
+def plan_of(c, ctx, *changes):
+    moves = [{"at": at, "heat": h, "cool": cl} for at, h, cl in changes]
+    return guardrails.apply({"levels": [{"level": "Upstairs", "rationale": "", "changes": moves}],
+                             "notes_update": ""}, ctx, c)  # fmt: skip
+
+
+def test_a_plan_that_skips_a_setback_gets_a_warning_and_no_change():
+    # Downstairs on 2026-11-25: Opus kept 64/71 through the empty night band.
+    c = cfg(levels=NIGHT)
+    ctx = ctx_for(c, heat_f=64, cool_f=71, now=local(13, 21) + timedelta(seconds=2))
+    plan = plan_of(c, ctx, ("2026-11-14T05:45", 64, 71))
+    (lp,) = plan.levels
+    assert changes(plan) == [] and lp.corrections == []
+    assert lp.warnings == [
+        "no setback in the night band (22:30-06:30): heat stays at 64.0F though the band"
+        " allows 60.0F, and cool stays at 71.0F though the band allows 76.0F"
+    ]
+    assert runs.plan_dict(plan)[0]["warnings"] == lp.warnings
+    # Using either edge is a setback; the short nap band never gets a warning.
+    used = plan_of(c, ctx, ("2026-11-13T22:30", 60, 71), ("2026-11-14T06:00", 64, 71))
+    assert used.levels[0].warnings == [
+        "no setback in the night band (22:30-06:30): cool stays at 71.0F though the band"
+        " allows 76.0F"
+    ]
+    both = plan_of(c, ctx, ("2026-11-13T22:30", 60, 76), ("2026-11-14T06:00", 64, 71))
+    assert both.levels[0].warnings == [] and "warnings" not in runs.plan_dict(both)[0]
+
+
+def test_a_band_starting_as_the_plan_is_made_is_checked_too():
+    # The sleep band starts at 22:00, the moment of planning; heat held at 64 through it, and
+    # cool kept at the sleep band's 69 through the next day.
+    c = cfg()
+    ctx = ctx_for(c, now=local(13, 22) + timedelta(seconds=2))
+    plan = plan_of(c, ctx, ("2026-11-13T22:00", 64, 69))
+    assert plan.levels[0].warnings == [
+        "no setback in the sleep band (22:00-07:00): heat stays at 64.0F though the band"
+        " allows 62.0F",
+        "no setback in the day band (from Sat 07:00): cool stays at 69.0F though the band"
+        " allows 72.0F",
+    ]
+
+
 def test_max_step_min_gap_floor_and_rounding():
     wide = {"Upstairs": {"bands": [{"name": "day", "heat": 60, "cool": 80}]}}
     c = cfg(levels=wide, limits={"max_step": 4, "min_gap": 3, "ceiling": 80})
